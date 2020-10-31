@@ -31,6 +31,7 @@ chrome_options.add_argument("--headless")
 chrome_options.add_argument("--window-size=1920x1080")
 sweep_raid_driver = webdriver.Chrome(ChromeDriverManager().install(),options=chrome_options)
 fight_driver = webdriver.Chrome(ChromeDriverManager().install(),options=chrome_options)
+raid_driver = webdriver.Chrome(ChromeDriverManager().install(),options=chrome_options)
 
 def getTime(element):
     minutes = int(element[3:5])
@@ -57,36 +58,103 @@ def getWarlockList(raid_html):
     return warlock_dict
 
 def getRaidComposition(raid_html):
-    boss_ids=[6]
+
+    def checkForBuffs(buff_id, element):
+        if str(buff_id) in element_value: # Shadow Weaving
+            debuff_data[boss_id]["debuff_set"].add(buff_id)
+            if debuff_data[boss_id].get(buff_id) is None:
+                debuff_data[boss_id][buff_id] = []
+            time = fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/tbody[1]/tr["+str(k-1)+"]/td[1]").text
+            dec_time = getTime(time)
+            print("Time!", getTime(time))
+            if "is afflicted by" in element_value:
+                if debuff_status.get(buff_id) is None:
+                    debuff_status[buff_id] = True #Active
+                    debuff_data[boss_id][buff_id].append([dec_time])
+                elif debuff_status.get(buff_id) is False:
+                    debuff_status[buff_id] = True 
+                    debuff_data[boss_id][buff_id].append([dec_time])
+                elif debuff_status.get(buff_id) is True:
+                    print(buff_id, "Error on parsing buffs. Already on")
+            elif "fades from" in element_value:
+                if debuff_status.get(buff_id) is True:
+                    if ") fades" not in element_value:
+                        debuff_status[buff_id] = False 
+                        debuff_data[boss_id][buff_id][-1].append(dec_time)
+                else:
+                    print(buff_id, "Error on parsing buffs")
+            return True
+
+    boss_ids=[17]
+    buff_ids = [15258, 17800, 17937]
     debuff_data={}
+
+
+    boss_list = ["Twin Emperors Normal", "The Prophet Skeram Normal", "Battleguard Sartura Normal", "Fankriss the Unyielding Normal", "C'thun Normal", "Ouro Normal", "Viscidus Normal", "Silithid Royalty Normal"]
+
+    print(raid_html)
+    boss_dict = {}
+    for fight_num in range(1,12):
+        fight_driver.get(raid_html)
+        try:
+            fight_text = fight_driver.find_element_by_xpath('/html/body/div[2]/div[2]/div[5]/div/div/div/div['+str(fight_num)+']/a/span[1]').text
+        except:
+            print("SKIPPING", fight_num)
+            continue
+        if fight_text in boss_list:
+            ahref = fight_driver.find_element_by_xpath('/html/body/div[2]/div[2]/div[5]/div/div/div/div['+str(fight_num)+']/a')
+            ahref.click()
+            fight_html = ahref.get_attribute("href")
+            boss_dict[fight_text] = fight_html
+
+    print(boss_dict)
+    return
+
+
     for boss_id in boss_ids:
-        debuff_data[boss_id]=set()
-        fight_driver.get(raid_html+"#fight="+str(boss_id)+"&type=auras&spells=debuffs&hostility=1&view=events")
+        debuff_data[boss_id]={}
+        debuff_data[boss_id]["debuff_set"]=set()
+        fight_driver.get(raid_html+"#fight="+str(boss_id)+"&type=auras&spells=debuffs&hostility=1")
+
+        debuff_status = {}
+
+        fight_time = fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[3]/div/div[1]/div[1]/div/div[2]/span/span[1]").text[1:-1]
+        print(fight_time[:-3],fight_time[-2:])
+        print(int(fight_time[:-3])*60,int(fight_time[-2:]))
+        fight_time = int(fight_time[:-3])*60+ int(fight_time[-2:])
+        print(fight_time)
+        return
 
         k = 1
+        pages = 1
         while True:
             try:
                 debuff_meta = fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/tbody[1]/tr["+str(k)+"]/td[2]")
-                # debuff_meta = fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div/div[1]/table/tbody/tr["+str(k)+"]/td[1]/a[1]")
 
             except:
-                print("over", k)
-                break
+                try:
+                    next_page = fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/a[4]")
+                    pages+=1
+                    fight_driver.get(next_page.get_attribute("href"))
+                except:
+                    print("pages", pages)
+                    break
             k += 1
 
             element_value = debuff_meta.get_attribute('innerHTML')
-            if "15258" in element_value: # Shadow Weaving
-                debuff_data[boss_id].add(15258)
-                time = fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/tbody[1]/tr["+str(k-1)+"]/td[1]").text
-                print("Time!", time)
-                print("Time!", getTime(time))
-                continue
-            if "17800" in element_value: # Shadow Weaving (add the others?)
-                debuff_data[boss_id].add(17800)
-                time = fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/tbody[1]/tr["+str(k-1)+"]/td[1]").text
-                print("Time!", time)
-                print("Time!", getTime(time))
-                continue
+            for buff_id in buff_ids:
+                if checkForBuffs(buff_id, element_value):
+                    break
+            # if "17800" in element_value: # Shadow Weaving (add the others?)
+            #     debuff_data[boss_id]["debuff_set"].add(17800)
+            #     time = fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/tbody[1]/tr["+str(k-1)+"]/td[1]").text
+            #     print("Time!", getTime(time))
+            #     continue
+            # if "17937" in element_value: # CoS 
+            #     debuff_data[boss_id]["debuff_set"].add(17937)
+            #     time = fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/tbody[1]/tr["+str(k-1)+"]/td[1]").text
+            #     print("Time!", getTime(time))
+            #     continue
     print(debuff_data)
     return debuff_data
     
@@ -106,6 +174,7 @@ def sweepRaid(raid_html):
     #     /html/body/div[2]/div[2]/div[5]/div/div/div/div[3]/a
 
 def sweepRaids(raid_id, server_id, num_pages = 1):
+
     html = "https://classic.warcraftlogs.com/zone/reports?zone="+str(raid_id)+"&region=6&subregion=11&page=2000&server="+str(server_id)
     page_num = random.randint(1,10)
     for i in range(num_pages):
@@ -115,7 +184,6 @@ def sweepRaids(raid_id, server_id, num_pages = 1):
         time.sleep(TIME_BETWEEN_LOAD)
         for n in range(1,100):
             ahref = sweep_raid_driver.find_element_by_xpath('/html/body/div[2]/div[3]/div/div[4]/div/div[1]/table/tbody/tr['+str(n)+']/td[1]/a')
-            print(ahref.get_attribute("href"))
             sweepRaid(ahref.get_attribute("href"))
             return
 
@@ -130,6 +198,7 @@ def sweepRaids(raid_id, server_id, num_pages = 1):
 sweepRaids(1005, 5004)
 sweep_raid_driver.quit()
 fight_driver.quit()
+raid_driver.quit()
 exit()
 
 
