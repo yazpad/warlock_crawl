@@ -1,4 +1,12 @@
 from list_dict_DB import list_dict_DB
+from selenium.webdriver.common.by import By
+
+from selenium.webdriver.support import expected_conditions as EC
+
+from selenium.common.exceptions import TimeoutException
+
+from selenium.webdriver.support.ui import WebDriverWait
+
 from selenium import webdriver
 import random
 import re
@@ -8,6 +16,14 @@ import time
 from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
 
+
+MAX_DELAY = 2
+
+boss_list = ["Twin Emperors Normal", "The Prophet Skeram Normal", "Battleguard Sartura Normal", "Fankriss the Unyielding Normal", "C'thun Normal", "Ouro Normal", "Viscidus Normal", "Silithid Royalty Normal"]
+
+debuff_list = ["ability-15258-0", "ability-17800-0", "ability-17937-0", "ability-11722-0"]
+
+buff_dict = {"ability-18791-0":"Touch of Shadow", "ability-23271-0": "Ephemeral Power", "ability-17941-0": "Shadow Trance", "ability-18288-0": "Amplify Curse"}
 
 items = [{"name": "yazpad", "fight": "A", "date": 0, "class": "warlock", "server": "Fairbanks", "spec": "ds/ruin", "boss": "Fankriss"}]
 
@@ -57,47 +73,107 @@ def getWarlockList(raid_html):
     print(warlock_dict)
     return warlock_dict
 
-def getRaidComposition(raid_html):
+def getDebuffData(fight_html, fight_text, debuff_data, fight_data):
+    debuff_data[fight_text]={}
+    debuff_data[fight_text]["debuff_set"]=set()
+    debuff_html = fight_html + "&type=auras&spells=debuffs&hostility=1"
+    fight_driver.get(debuff_html)
+    print(debuff_html)
 
-    def checkForBuffs(buff_id, element):
-        if str(buff_id) in element_value: # Shadow Weaving
-            debuff_data[boss_id]["debuff_set"].add(buff_id)
-            if debuff_data[boss_id].get(buff_id) is None:
-                debuff_data[boss_id][buff_id] = []
-            time = fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/tbody[1]/tr["+str(k-1)+"]/td[1]").text
-            dec_time = getTime(time)
-            print("Time!", getTime(time))
-            if "is afflicted by" in element_value:
-                if debuff_status.get(buff_id) is None:
-                    debuff_status[buff_id] = True #Active
-                    debuff_data[boss_id][buff_id].append([dec_time])
-                elif debuff_status.get(buff_id) is False:
-                    debuff_status[buff_id] = True 
-                    debuff_data[boss_id][buff_id].append([dec_time])
-                elif debuff_status.get(buff_id) is True:
-                    print(buff_id, "Error on parsing buffs. Already on")
-            elif "fades from" in element_value:
-                if debuff_status.get(buff_id) is True:
-                    if ") fades" not in element_value:
-                        debuff_status[buff_id] = False 
-                        debuff_data[boss_id][buff_id][-1].append(dec_time)
-                else:
-                    print(buff_id, "Error on parsing buffs")
-            return True
+    fight_time = fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[3]/div/div[1]/div[1]/div/div[2]/span/span[1]").text[1:-1]
+    fight_time = int(fight_time[:-3])*60+ int(fight_time[-2:])
+    fight_data["fight_time"] = fight_time
+    print(fight_data["fight_time"])
 
-    boss_ids=[17]
-    buff_ids = [15258, 17800, 17937]
+    try:
+        WebDriverWait(fight_driver, MAX_DELAY).until(EC.presence_of_element_located((By.XPATH, "/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div/div[1]/table/tbody/tr[1]/td[1]/a[2]")))
+    except TimeoutException:
+        print("Loading took too much time")
+        return
+    k = 0
+    while True:
+        k += 1
+        try:
+            debuff_meta = fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div/div[1]/table/tbody/tr["+str(k)+"]/td[1]/a[2]")
+
+        except:
+            break
+
+        element_value = debuff_meta.get_attribute('id')
+        if element_value in debuff_list:
+            debuff_data[fight_text][element_value] = []
+            bar_num = 0
+            while True:
+                bar_num += 1
+                try:
+                    bar_value = fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div/div[1]/table/tbody/tr["+str(k)+"]/td[3]/div[2]/div["+str(bar_num)+"]").get_attribute("style")
+                    left = bar_value.split("left:")[1].split("%;")[0]
+                    width = bar_value.split("width:")[1].split("%;")[0]
+                    debuff_data[fight_text][element_value].append((float(left)/100.0*fight_time, (float(left)+float(width))/100.0*fight_time))
+                except:
+                    break
+
+def getPlayerBuffData(fight_html, fight_text, warlock_name, warlock_source, player_data):
+    player_data[warlock_name][fight_text]["buffs"] = {}
+    player_buff_html = fight_html + "&type=auras&source="+str(warlock_source)
+    print(player_buff_html)
+    fight_driver.get(player_buff_html)
+    try:
+        WebDriverWait(fight_driver, MAX_DELAY).until(EC.presence_of_element_located((By.XPATH, "/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div/div[1]/div[1]")))
+    except TimeoutException:
+        print("Loading took too much time")
+        return
+    for g in range(1,5):
+        try:
+            buff_meta_name = fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div/div["+str(g)+"]/div[1]")
+        except:
+            break
+        if buff_meta_name.text == "Damage Buffs":
+            print("FOUND DMG BUFFS")
+            k = 0
+            while True:
+                k += 1
+                try:
+                    buff_row_xpath = "/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div/div["+str(g)+"]/div[2]/div[1]/table/tbody/tr["+str(k)+"]/td[1]/a[2]"
+                    buff_meta = fight_driver.find_element_by_xpath(buff_row_xpath)
+                except:
+                    break
+
+                element_value = buff_meta.get_attribute('id')
+                if element_value in list(buff_dict.values()):
+                    player_data[warlock_name][fight_text]["buffs"][element_value] = []
+                    bar_num = 0
+                    while True:
+                        bar_num += 1
+
+                        try:
+                            bar_value = fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div/div["+str(g)+"]/div[2]/div[1]/table/tbody/tr["+str(k)+"]/td[3]/div[2]/div["+str(bar_num)+"]").get_attribute("style")
+                            left = bar_value.split("left:")[1].split("%;")[0]
+                            width = bar_value.split("width:")[1].split("%;")[0]
+                            player_data[warlock_name][fight_text]["buffs"][element_value].append((float(left)/100.0*fight_time, (float(left)+float(width))/100.0*fight_time))
+                        except:
+                            break
+            break
+
+def getPlayerCastData(fight_html, fight_text, warlock_name, warlock_source, player_data):
+    player_cast_html = fight_html + "&type=casts&source="+str(warlock_source)+"&view=events"
+    fight_driver.get(player_cast_html)
+    pass
+
+def getRaidComposition(raid_html, warlock_sources):
     debuff_data={}
+    player_data={}
 
+    for k,v in warlock_sources.items():
+        player_data[k] = {}
 
-    boss_list = ["Twin Emperors Normal", "The Prophet Skeram Normal", "Battleguard Sartura Normal", "Fankriss the Unyielding Normal", "C'thun Normal", "Ouro Normal", "Viscidus Normal", "Silithid Royalty Normal"]
+    fight_data = {}
 
-    print(raid_html)
-    boss_dict = {}
     for fight_num in range(1,12):
         fight_driver.get(raid_html)
         try:
             fight_text = fight_driver.find_element_by_xpath('/html/body/div[2]/div[2]/div[5]/div/div/div/div['+str(fight_num)+']/a/span[1]').text
+            print(fight_text)
         except:
             print("SKIPPING", fight_num)
             continue
@@ -105,56 +181,13 @@ def getRaidComposition(raid_html):
             ahref = fight_driver.find_element_by_xpath('/html/body/div[2]/div[2]/div[5]/div/div/div/div['+str(fight_num)+']/a')
             ahref.click()
             fight_html = ahref.get_attribute("href")
-            boss_dict[fight_text] = fight_html
+            getDebuffData(fight_html,fight_text,debuff_data, fight_data)
+            for k,v in warlock_sources.items():
+                player_data[k][fight_text]={}
+                getPlayerBuffData(fight_html, fight_text, k, v, player_data)
+                getPlayerCastData(fight_html, fight_text, k, v, player_data)
 
-    print(boss_dict)
-    return
-
-
-    for boss_id in boss_ids:
-        debuff_data[boss_id]={}
-        debuff_data[boss_id]["debuff_set"]=set()
-        fight_driver.get(raid_html+"#fight="+str(boss_id)+"&type=auras&spells=debuffs&hostility=1")
-
-        debuff_status = {}
-
-        fight_time = fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[3]/div/div[1]/div[1]/div/div[2]/span/span[1]").text[1:-1]
-        print(fight_time[:-3],fight_time[-2:])
-        print(int(fight_time[:-3])*60,int(fight_time[-2:]))
-        fight_time = int(fight_time[:-3])*60+ int(fight_time[-2:])
-        print(fight_time)
-        return
-
-        k = 1
-        pages = 1
-        while True:
-            try:
-                debuff_meta = fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/tbody[1]/tr["+str(k)+"]/td[2]")
-
-            except:
-                try:
-                    next_page = fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/a[4]")
-                    pages+=1
-                    fight_driver.get(next_page.get_attribute("href"))
-                except:
-                    print("pages", pages)
-                    break
-            k += 1
-
-            element_value = debuff_meta.get_attribute('innerHTML')
-            for buff_id in buff_ids:
-                if checkForBuffs(buff_id, element_value):
-                    break
-            # if "17800" in element_value: # Shadow Weaving (add the others?)
-            #     debuff_data[boss_id]["debuff_set"].add(17800)
-            #     time = fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/tbody[1]/tr["+str(k-1)+"]/td[1]").text
-            #     print("Time!", getTime(time))
-            #     continue
-            # if "17937" in element_value: # CoS 
-            #     debuff_data[boss_id]["debuff_set"].add(17937)
-            #     time = fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/tbody[1]/tr["+str(k-1)+"]/td[1]").text
-            #     print("Time!", getTime(time))
-            #     continue
+    print(player_data)
     print(debuff_data)
     return debuff_data
     
@@ -162,16 +195,7 @@ def getRaidComposition(raid_html):
 
 def sweepRaid(raid_html):
     warlock_sources = getWarlockList(raid_html)
-    getRaidComposition(raid_html)
-    # Get list of fights from raid_id
-    # Keep local data of warlock here, it will be used to determine spec and other factors
-    # at the end of this function, load list_dict
-    pass
-    # damage done -> gather all warlocks
-    # By boss -> get relevant debuffs, CoS, Shadow vuln, etc,
-    # By Boss/player -> get raid data (flask, spec), get player data (sp, crit, hit, dps, isb uptime)
-    # for fight_id in fight_ids[raid_id]:
-    #     /html/body/div[2]/div[2]/div[5]/div/div/div/div[3]/a
+    getRaidComposition(raid_html, warlock_sources)
 
 def sweepRaids(raid_id, server_id, num_pages = 1):
 
