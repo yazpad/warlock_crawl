@@ -18,13 +18,12 @@ from webdriver_manager.chrome import ChromeDriverManager
 
 
 MAX_DELAY = 2
+PAGE_DELAY = 2
 
-boss_list = ["Twin Emperors Normal", "The Prophet Skeram Normal", "Battleguard Sartura Normal", "Fankriss the Unyielding Normal", "C'thun Normal", "Ouro Normal", "Viscidus Normal", "Silithid Royalty Normal"]
+boss_list = ["Maiden of Virtue Normal"]
 
 debuff_list = ["ability-15258-0", "ability-17800-0", "ability-17937-0", "ability-11722-0"]
-
 buff_dict = {"ability-18791-0":"Touch of Shadow", "ability-23271-0": "Ephemeral Power", "ability-17941-0": "Shadow Trance", "ability-18288-0": "Amplify Curse"}
-
 items = [{"name": "yazpad", "fight": "A", "date": 0, "class": "warlock", "server": "Fairbanks", "spec": "ds/ruin", "boss": "Fankriss"}]
 
 DB = list_dict_DB(items)
@@ -49,35 +48,50 @@ sweep_raid_driver = webdriver.Chrome(ChromeDriverManager().install(),options=chr
 fight_driver = webdriver.Chrome(ChromeDriverManager().install(),options=chrome_options)
 raid_driver = webdriver.Chrome(ChromeDriverManager().install(),options=chrome_options)
 
+def cleanExit():
+    sweep_raid_driver.quit()
+    fight_driver.quit()
+    raid_driver.quit()
+    exit()
+
+
 def getTime(element):
     minutes = int(element[3:5])
     seconds = float(element[6:])
     time_val = minutes*60+seconds
     return time_val
 
-def getWarlockList(raid_html):
+def getComposition(raid_html):
+    time.sleep(PAGE_DELAY)
     fight_driver.get(raid_html+"#boss=-2&difficulty=0&type=damage-done")
     warlock_dict = {}
 
     for i in range(1,41):
         try:
+            character_img = fight_driver.find_element_by_xpath('/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/tbody/tr['+str(i)+']/td[2]/table/tbody/tr/td[1]')
             character_meta = fight_driver.find_element_by_xpath('/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/tbody/tr['+str(i)+']/td[2]/table/tbody/tr/td[2]')
         except:
             break
 
         element_value = character_meta.get_attribute('innerHTML')
-        if "Warlock" in element_value:
+        element_value_img = character_img.get_attribute('innerHTML')
+        print(element_value_img)
+        if "Warlock" in element_value or "Priest-Shadow" in element_value_img:
             split_for_source = element_value.split("setFilterSource('")[1].split("'")[0]
             split_for_name = element_value.split('">')[1].splitlines()[0]
             warlock_dict[split_for_name] = split_for_source
+        if "Priest-Shadow" in element_value_img:
+            print("Shadow priest found")
     print(warlock_dict)
     return warlock_dict
 
 def getDebuffData(fight_html, fight_text, debuff_data, fight_data):
+    time.sleep(PAGE_DELAY)
     debuff_data[fight_text]={}
     debuff_data[fight_text]["debuff_set"]=set()
     debuff_html = fight_html + "&type=auras&spells=debuffs&hostility=1"
     fight_driver.get(debuff_html)
+    isb_found = False
     print(debuff_html)
 
     fight_time = fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[3]/div/div[1]/div[1]/div/div[2]/span/span[1]").text[1:-1]
@@ -100,6 +114,10 @@ def getDebuffData(fight_html, fight_text, debuff_data, fight_data):
             break
 
         element_value = debuff_meta.get_attribute('id')
+        if element_value == "ability-17800-0":
+            print("ISB FOUND")
+            isb_found = True
+
         if element_value in debuff_list:
             debuff_data[fight_text][element_value] = []
             bar_num = 0
@@ -112,8 +130,10 @@ def getDebuffData(fight_html, fight_text, debuff_data, fight_data):
                     debuff_data[fight_text][element_value].append((float(left)/100.0*fight_time, (float(left)+float(width))/100.0*fight_time))
                 except:
                     break
+    return isb_found
 
 def getPlayerBuffData(fight_html, fight_text, warlock_name, warlock_source, player_data):
+    time.sleep(PAGE_DELAY)
     player_data[warlock_name][fight_text]["buffs"] = {}
     player_buff_html = fight_html + "&type=auras&source="+str(warlock_source)
     print(player_buff_html)
@@ -140,7 +160,9 @@ def getPlayerBuffData(fight_html, fight_text, warlock_name, warlock_source, play
                     break
 
                 element_value = buff_meta.get_attribute('id')
-                if element_value in list(buff_dict.values()):
+                print(element_value)
+                if element_value in list(buff_dict.keys()):
+                    print(element_value, buff_dict[element_value])
                     player_data[warlock_name][fight_text]["buffs"][element_value] = []
                     bar_num = 0
                     while True:
@@ -156,9 +178,25 @@ def getPlayerBuffData(fight_html, fight_text, warlock_name, warlock_source, play
             break
 
 def getPlayerCastData(fight_html, fight_text, warlock_name, warlock_source, player_data):
+    print("Starting to gather player cast data: ", warlock_name)
+    time.sleep(PAGE_DELAY)
     player_cast_html = fight_html + "&type=casts&source="+str(warlock_source)+"&view=events"
     fight_driver.get(player_cast_html)
-    pass
+    try:
+        WebDriverWait(fight_driver, MAX_DELAY).until(EC.presence_of_element_located((By.XPATH, "/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/tbody[1]/tr[1]/td[1]")))
+    except TimeoutException:
+        print("Loading took too much time")
+        return
+    for g in range(1,100):
+        try:
+            cast_element = fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/tbody[1]/tr["+str(g)+"]/td[2]").get_attribute('innerHTML')
+            if "casts" in cast_element and "Shadow Bolt" in cast_element:
+                cast_time = fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/tbody[1]/tr["+str(g)+"]/td[1]").text
+                print(warlock_name, "CAST SHADOWBOLT", cast_time, g)
+        except Exception as e:
+            print(e)
+            print("Completed for player", warlock_name)
+            return
 
 def getRaidComposition(raid_html, warlock_sources):
     debuff_data={}
@@ -194,22 +232,31 @@ def getRaidComposition(raid_html, warlock_sources):
 
 
 def sweepRaid(raid_html):
-    warlock_sources = getWarlockList(raid_html)
-    getRaidComposition(raid_html, warlock_sources)
+    composition = getComposition(raid_html)
+    getRaidComposition(raid_html, composition)
 
 def sweepRaids(raid_id, server_id, num_pages = 1):
+    try:
+        html = "https://classic.warcraftlogs.com/zone/reports?zone="+str(raid_id)+"&boss=0&difficulty=0&class=Any&spec=Any&keystone=0&kills=2&duration=0"
+        page_num = random.randint(1,4)
+        for i in range(num_pages):
 
-    html = "https://classic.warcraftlogs.com/zone/reports?zone="+str(raid_id)+"&region=6&subregion=11&page=2000&server="+str(server_id)
-    page_num = random.randint(1,10)
-    for i in range(num_pages):
-        html = "https://classic.warcraftlogs.com/zone/reports?zone="+str(raid_id)+"&region=6&subregion=13&page="+str(random.randint(1,10))+"&server="+str(server_id)
-        sweep_raid_driver.get(html)
-        sweep_raid_driver.execute_script("return document.documentElement.innerHTML;")
-        time.sleep(TIME_BETWEEN_LOAD)
-        for n in range(1,100):
-            ahref = sweep_raid_driver.find_element_by_xpath('/html/body/div[2]/div[3]/div/div[4]/div/div[1]/table/tbody/tr['+str(n)+']/td[1]/a')
-            sweepRaid(ahref.get_attribute("href"))
-            return
+            html = "https://classic.warcraftlogs.com/zone/reports?zone="+str(raid_id)+"&boss=0&difficulty=0&class=Any&spec=Any&keystone=0&kills=2&duration=0&page="+str(random.randint(1,3))
+            print("Sweeping raid", html)
+            sweep_raid_driver.get(html)
+            sweep_raid_driver.execute_script("return document.documentElement.innerHTML;")
+            time.sleep(TIME_BETWEEN_LOAD)
+            for n in range(1,100):
+                try:
+                    ahref = sweep_raid_driver.find_element_by_xpath('/html/body/div[2]/div[3]/div/div[4]/div/div[1]/table/tbody/tr['+str(n)+']/td[1]/a')
+                except:
+                    print("Failed to find element by xpath. 1")
+                    cleanExit()
+                sweepRaid(ahref.get_attribute("href"))
+                return
+    except:
+        print("Failed to sweep raid.")
+        cleanExit()
 
                 # element_value_split = element_value.split('"')
                 # for e in element_value_split:
@@ -219,12 +266,8 @@ def sweepRaids(raid_id, server_id, num_pages = 1):
 
         # next_fun(html)
     # html_start = "https://classic.warcraftlogs.com/zone/rankings/1005#metric=execution&boss=715&region=6&subregion=13&page=2"
-sweepRaids(1005, 5004)
-sweep_raid_driver.quit()
-fight_driver.quit()
-raid_driver.quit()
-exit()
-
+sweepRaids(1007, 5004)
+cleanExit()
 
 
 html_list = []
