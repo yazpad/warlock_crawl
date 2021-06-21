@@ -1,5 +1,8 @@
 from list_dict_DB import list_dict_DB
 from selenium.webdriver.common.by import By
+import traceback
+from enum import Enum
+
 
 from selenium.webdriver.support import expected_conditions as EC
 
@@ -16,8 +19,27 @@ import time
 from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
 
+class characterClass(Enum):
+    SHADOW_WARLOCK = 1
+    FIRE_WARLOCK = 2
+    SHADOW_PRIEST = 3
+    UNKNOWN = 4
 
-MAX_DELAY = 2
+class composition(Enum):
+    W1_0SP = 1
+    W2_0SP = 2
+    W3_0SP = 3
+    W4_0SP = 4
+    W5_0SP = 5
+    W1_1SP = 6
+    W2_1SP = 7
+    W3_1SP = 8
+    W4_1SP = 9
+    W5_1SP = 10
+    UNKNOWN = 11
+
+print(composition.UNKNOWN)
+MAX_DELAY = 5
 PAGE_DELAY = 2
 
 boss_list = ["Maiden of Virtue Normal"]
@@ -64,12 +86,21 @@ def getTime(element):
 def getComposition(raid_html):
     time.sleep(PAGE_DELAY)
     fight_driver.get(raid_html+"#boss=-2&difficulty=0&type=damage-done")
+    fight_driver.execute_script("return document.documentElement.innerHTML;")
     warlock_dict = {}
+    num_found = 0
+
+    try:
+        WebDriverWait(fight_driver, MAX_DELAY).until(EC.presence_of_element_located((By.XPATH, "/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/tbody/tr[2]/td[2]/table/tbody/tr/td[1]")))
+    except TimeoutException:
+        print("Loading characters took too much time", raid_html+"#boss=-2&difficulty=0&type=damage-done")
+        return warlock_dict
 
     for i in range(1,41):
         try:
             character_img = fight_driver.find_element_by_xpath('/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/tbody/tr['+str(i)+']/td[2]/table/tbody/tr/td[1]')
             character_meta = fight_driver.find_element_by_xpath('/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/tbody/tr['+str(i)+']/td[2]/table/tbody/tr/td[2]')
+            num_found += 1
         except:
             break
 
@@ -83,6 +114,9 @@ def getComposition(raid_html):
         if "Priest-Shadow" in element_value_img:
             print("Shadow priest found")
     print(warlock_dict)
+    if num_found == 0:
+        print("Failed to find any players.., Trying again")
+        return getComposition(raid_html)
     return warlock_dict
 
 def getDebuffData(fight_html, fight_text, debuff_data, fight_data):
@@ -177,7 +211,21 @@ def getPlayerBuffData(fight_html, fight_text, warlock_name, warlock_source, play
                             break
             break
 
-def getPlayerCastData(fight_html, fight_text, warlock_name, warlock_source, player_data):
+def getPlayerCastData(fight_html, fight_text, warlock_name, warlock_source, player_data, debuff_data):
+    def duringISB(cast_time):
+        for bounds in debuff_data["ability-17800-0"]:
+            if cast_time > float(bounds[0]) and cast_time < float(bounds[1]):
+                return True
+        return False
+
+    casted_shadowbolt = False
+    casted_incinerate = False
+    casted_mindblast = False
+    stats = {"in_isb": 0, "total": 0}
+
+    def castTime(raw_cast_time):
+        return int(cast_time[-8:-6])*60+ float(cast_time[-5:])
+
     print("Starting to gather player cast data: ", warlock_name)
     time.sleep(PAGE_DELAY)
     player_cast_html = fight_html + "&type=casts&source="+str(warlock_source)+"&view=events"
@@ -191,16 +239,151 @@ def getPlayerCastData(fight_html, fight_text, warlock_name, warlock_source, play
         try:
             cast_element = fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/tbody[1]/tr["+str(g)+"]/td[2]").get_attribute('innerHTML')
             if "casts" in cast_element and "Shadow Bolt" in cast_element:
-                cast_time = fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/tbody[1]/tr["+str(g)+"]/td[1]").text
-                print(warlock_name, "CAST SHADOWBOLT", cast_time, g)
+                cast_time = fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/tbody[1]/tr["+str(g)+"]/td[1]").text[1:-1]
+                cast_time = castTime(cast_time)
+                casted_shadowbolt = True
+                if duringISB(cast_time):
+                    stats["in_isb"]+=1
+                stats["total"]+=1
+
+                #print(warlock_name, "CAST SHADOWBOLT", cast_time, g)
+
+            if "casts" in cast_element and "Incinerate" in cast_element:
+                cast_time = fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/tbody[1]/tr["+str(g)+"]/td[1]").text[1:-1]
+                cast_time = castTime(cast_time)
+                casted_incinerate = True
+
+                #print(warlock_name, "CAST INCINERATE", cast_time, g)
+
+                if duringISB(cast_time):
+                    stats["in_isb"]+=1
+                stats["total"]+=1
+
+            if "casts" in cast_element and "Mind Blast" in cast_element:
+                cast_time = fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/tbody[1]/tr["+str(g)+"]/td[1]").text[1:-1]
+                cast_time = castTime(cast_time)
+                casted_mindblast = True
+
+                #print(warlock_name, "CAST Mind blast", cast_time, g)
+
+                if duringISB(cast_time):
+                    stats["in_isb"]+=1
+                stats["total"]+=1
+
+        except Exception as e:
+            #print(e)
+            #print(traceback.format_exc())
+
+
+            if stats["total"] > 0:
+                print("ISB ratio: ", stats["in_isb"]/stats["total"])
+            if casted_shadowbolt:
+                print("Completed for shadow warlock", warlock_name)
+                return characterClass.SHADOW_WARLOCK, stats
+            elif casted_incinerate:
+                print("Completed for fire warlock", warlock_name)
+                return characterClass.FIRE_WARLOCK, stats
+            elif casted_mindblast:
+                print("Completed for shadowpriest", warlock_name)
+                return characterClass.SHADOW_PRIEST, stats
+            else:
+                print("Completed for unknown class", warlock_name)
+            return characterClass.UNKNOWN, stats
+
+def getPlayerHitCrit(fight_html, fight_text, warlock_name, warlock_source, player_data, debuff_data):
+
+    casted_shadowbolt = False
+    casted_incinerate = False
+    casted_mindblast = False
+    stats = {"in_isb": 0, "total": 0}
+
+    print("Starting to gather player crit/hit data: ", warlock_name)
+    time.sleep(PAGE_DELAY)
+    player_cast_html = fight_html + "&type=damage-done&source="+str(warlock_source)
+    fight_driver.get(player_cast_html)
+    try:
+        WebDriverWait(fight_driver, MAX_DELAY).until(EC.presence_of_element_located((By.XPATH, "/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/tbody/tr[1]/td[1]/table/tbody/tr/td[2]/a/span")))
+    except TimeoutException:
+        print("Loading took too much time")
+        return
+
+    crit_index = None
+    hit_index = None
+    for h in range(1,10):
+        try:
+            if "Crit" in fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/thead/tr/th["+str(h)+"]/div").text:
+                crit_index = h
+            if "Miss" in fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/thead/tr/th["+str(h)+"]/div").text:
+                hit_index = h
+            if hit_index is not None and crit_index is not None:
+                break
         except Exception as e:
             print(e)
-            print("Completed for player", warlock_name)
-            return
+            print(player_cast_html)
+            print(traceback.format_exc())
+    for g in range(1,100):
+        try:
+            cast_element = fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/tbody/tr["+str(g)+"]/td[1]/table/tbody/tr/td[2]").text
+            if "Shadow Bolt" in cast_element:
+                if crit_index is not None:
+                    crit = fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/tbody/tr["+str(g)+"]/td["+str(crit_index)+"]").text
+                else:
+                    crit = 0
+                if hit_index is not None:
+                    hit = fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/tbody/tr[" + str(g) + "]/td["+str(hit_index)+"]").text
+                else:
+                    hit = 100
+                print("sb", warlock_name, hit, crit)
+                return
+            if "Mind Blast" in cast_element:
+                crit = fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/tbody/tr[" + str(g) + "]/td[7]").text
+                hit = fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/tbody/tr[" + str(g) + "]/td[9]").text
+                print(warlock_name, hit)
+                return 
+
+        except Exception as e:
+            print(e)
+            print(player_cast_html)
+            print(traceback.format_exc())
+
+
+            return 1, 1
+
 
 def getRaidComposition(raid_html, warlock_sources):
     debuff_data={}
     player_data={}
+    agg_stats = {"in_isb": 0, "total": 0}
+    num_shadow_priests = 0
+    num_shadow_warlocks = 0
+    total_fight_data = {"composition": composition.UNKNOWN, "warlock_info": [], "shadow_priest_info": [], "fight_length": -1, "isb_ratio": -1}
+
+    def determineComp(num_shadow_priests, num_shadow_warlocks):
+        if num_shadow_warlocks == 1:
+            if num_shadow_priests == 0:
+                return composition.W1_0SP
+            if num_shadow_priests == 1:
+                return composition.W1_1SP
+        if num_shadow_warlocks == 2:
+            if num_shadow_priests == 0:
+                return composition.W2_0SP
+            if num_shadow_priests == 1:
+                return composition.W2_1SP
+        if num_shadow_warlocks == 3:
+            if num_shadow_priests == 0:
+                return composition.W3_0SP
+            if num_shadow_priests == 1:
+                return composition.W3_1SP
+        if num_shadow_warlocks == 4:
+            if num_shadow_priests == 0:
+                return composition.W4_0SP
+            if num_shadow_priests == 1:
+                return composition.W4_1SP
+        return composition.UNKNOWN
+
+    def appendClassStats(agg_stats, stats):
+        agg_stats['total'] += stats['total']
+        agg_stats['in_isb'] += stats['in_isb']
 
     for k,v in warlock_sources.items():
         player_data[k] = {}
@@ -223,21 +406,38 @@ def getRaidComposition(raid_html, warlock_sources):
             for k,v in warlock_sources.items():
                 player_data[k][fight_text]={}
                 getPlayerBuffData(fight_html, fight_text, k, v, player_data)
-                getPlayerCastData(fight_html, fight_text, k, v, player_data)
+                class_type, cast_stats = getPlayerCastData(fight_html, fight_text, k, v, player_data, debuff_data[boss_list[0]])
+                getPlayerHitCrit(fight_html, fight_text, k, v, player_data, debuff_data[boss_list[0]])
+                if class_type == characterClass.SHADOW_PRIEST or class_type == characterClass.SHADOW_WARLOCK:
+                    appendClassStats(agg_stats, cast_stats)
+                    if class_type == characterClass.SHADOW_PRIEST: 
+                        num_shadow_priests += 1
+                    if class_type == characterClass.SHADOW_WARLOCK: 
+                        num_shadow_warlocks += 1
+
 
     print(player_data)
     print(debuff_data)
+    comp = determineComp(num_shadow_priests, num_shadow_warlocks)
+    print("Composition determined: ", comp)
+    total_fight_data['composition'] = comp
+    #total_fight_data['fight_length'] = comp
+    #total_fight_data['warlock_info'] = HIT and CRIT
+    #total_fight_data['shadow_priest_info'] = HIT and CRIT
+    if agg_stats['total'] > 0:
+        total_fight_data['isb_ratio'] = agg_stats['in_isb']/agg_stats['total']
+    print("Fight info", total_fight_data)
     return debuff_data
     
 
 
 def sweepRaid(raid_html):
-    composition = getComposition(raid_html)
-    getRaidComposition(raid_html, composition)
+    comp = getComposition(raid_html)
+    getRaidComposition(raid_html, comp)
 
-def sweepRaids(raid_id, server_id, num_pages = 1):
+def sweepRaids(raid_id, server_id, boss_id, num_pages = 1):
     try:
-        html = "https://classic.warcraftlogs.com/zone/reports?zone="+str(raid_id)+"&boss=0&difficulty=0&class=Any&spec=Any&keystone=0&kills=2&duration=0"
+        html = "https://classic.warcraftlogs.com/zone/reports?zone="+str(raid_id)+"&boss="+str(boss_id)+"&difficulty=0&class=Any&spec=Any&keystone=0&kills=2&duration=0"
         page_num = random.randint(1,4)
         for i in range(num_pages):
 
@@ -252,9 +452,12 @@ def sweepRaids(raid_id, server_id, num_pages = 1):
                 except:
                     print("Failed to find element by xpath. 1")
                     cleanExit()
-                sweepRaid(ahref.get_attribute("href"))
+                #sweepRaid(ahref.get_attribute("href"))
+                sweepRaid("https://classic.warcraftlogs.com/reports/h7knjxRfvMwcTzda")
                 return
-    except:
+    except Exception as e:
+        print(e)
+        print(traceback.format_exc())
         print("Failed to sweep raid.")
         cleanExit()
 
@@ -266,7 +469,7 @@ def sweepRaids(raid_id, server_id, num_pages = 1):
 
         # next_fun(html)
     # html_start = "https://classic.warcraftlogs.com/zone/rankings/1005#metric=execution&boss=715&region=6&subregion=13&page=2"
-sweepRaids(1007, 5004)
+sweepRaids(1007, 5004, 654)
 cleanExit()
 
 
