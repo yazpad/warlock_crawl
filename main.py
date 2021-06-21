@@ -18,6 +18,26 @@ import pickle
 import time
 from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
+import sqlite3 as sl
+import json
+
+con = sl.connect('isb.db')
+try:
+    with con:
+        con.execute("""
+            CREATE TABLE USER (
+                raid_html TEXT NOT NULL PRIMARY KEY,
+                composition STRING NOT NULL,
+                warlock_info TEXT,
+                shadow_priest_info TEXT,
+                fight_length INTEGER NOT NULL,
+                isb_ratio REAL NOT NULL,
+                boss_id INTEGER NOT NULL
+            );
+        """)
+except:
+    "db already detected"
+
 
 class characterClass(Enum):
     SHADOW_WARLOCK = 1
@@ -38,7 +58,48 @@ class composition(Enum):
     W5_1SP = 10
     UNKNOWN = 11
 
-print(composition.UNKNOWN)
+def printBossDB(boss_id):
+    print("Printing db for boss", boss_id)
+    with con:
+        data = con.execute("SELECT * FROM USER WHERE boss_id == ?", (boss_id,))
+        for row in data:
+            print(row)
+
+def insertIntoDB(fight_info):
+    sql = 'INSERT INTO USER (raid_html, composition, warlock_info, shadow_priest_info, fight_length, isb_ratio, boss_id) values(?, ?, ?, ?, ?, ?, ?)'
+    data = [(fight_info['raid_html'], str(fight_info['composition']), json.dumps(fight_info['warlock_info']), json.dumps(fight_info['shadow_priest_info']), fight_info['fight_length'], fight_info['isb_ratio'], fight_info['boss_id'])]
+    with con:
+        try:
+            con.executemany(sql, data)
+        except:
+            print("Attempted to add a fight which exists in DB")
+            pass
+
+def existsInDB(raid_html):
+    with con:
+        curser = con.cursor()
+        exists = curser.execute("SELECT rowid FROM USER WHERE raid_html == ?", (raid_html,))
+        exists = curser.fetchone()
+        if exists:
+            print(raid_html, "Already exists in db.")
+            return True
+        return False
+    return False
+
+fight_info = {"raid_html": "sample2", "composition": composition.W3_1SP, "warlock_info": {"as": 3}, "shadow_priest_info": {}, "fight_length": 110, "isb_ratio": .25, "boss_id": 111}
+insertIntoDB(fight_info);
+
+# data = [("sample_html22", str(composition.W1_1SP), json.dumps([{"a": str(composition.W2_1SP)}]), json.dumps([]), 11, .25, 10101)]
+
+with con:
+    data = con.execute("SELECT * FROM USER WHERE boss_id == 111")
+    curser = con.cursor()
+    exists = curser.execute("SELECT rowid FROM USER WHERE boss_id == ?", (10101,))
+    exists = curser.fetchone()
+    print("here",exists)
+    for row in data:
+        print(row)
+
 MAX_DELAY = 5
 PAGE_DELAY = 2
 
@@ -50,17 +111,18 @@ items = [{"name": "yazpad", "fight": "A", "date": 0, "class": "warlock", "server
 
 DB = list_dict_DB(items)
 
-print(DB.query(name="yazpad"))
+print(DB.query())
 
 TIME_BETWEEN_LOAD = 3
 
 force_reload = []
 
 try:
-    loaded_data = pickle.load( open( "save.p", "rb" ) )
+    loaded_data = pickle.load( open( "db.pickle", "rb" ) )
+    print(loaded_data)
 except:
     print("Cached data could not be loaded")
-    loaded_data = {}
+    loaded_data = list_dict_DB([])
 
 
 chrome_options = Options()
@@ -119,7 +181,7 @@ def getComposition(raid_html):
         return getComposition(raid_html)
     return warlock_dict
 
-def getDebuffData(fight_html, fight_text, debuff_data, fight_data):
+def getDebuffData(fight_html, fight_text, debuff_data, fight_data, fight_info_dict):
     time.sleep(PAGE_DELAY)
     debuff_data[fight_text]={}
     debuff_data[fight_text]["debuff_set"]=set()
@@ -131,6 +193,7 @@ def getDebuffData(fight_html, fight_text, debuff_data, fight_data):
     fight_time = fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[3]/div/div[1]/div[1]/div/div[2]/span/span[1]").text[1:-1]
     fight_time = int(fight_time[:-3])*60+ int(fight_time[-2:])
     fight_data["fight_time"] = fight_time
+    fight_info_dict["fight_length"] = fight_time
     print(fight_data["fight_time"])
 
     try:
@@ -290,7 +353,7 @@ def getPlayerCastData(fight_html, fight_text, warlock_name, warlock_source, play
                 print("Completed for unknown class", warlock_name)
             return characterClass.UNKNOWN, stats
 
-def getPlayerHitCrit(fight_html, fight_text, warlock_name, warlock_source, player_data, debuff_data):
+def getPlayerHitCrit(fight_html, fight_text, warlock_name, warlock_source, player_data, debuff_data, total_fight_data):
 
     casted_shadowbolt = False
     casted_incinerate = False
@@ -332,12 +395,14 @@ def getPlayerHitCrit(fight_html, fight_text, warlock_name, warlock_source, playe
                 if hit_index is not None:
                     hit = fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/tbody/tr[" + str(g) + "]/td["+str(hit_index)+"]").text
                 else:
-                    hit = 100
+                    hit = "0%"
+                total_fight_data["warlock_info"].append({"name": warlock_name, "hit": 1.0 - float(hit[:-1])/100., "crit": float(crit[:-1])/100.})
                 print("sb", warlock_name, hit, crit)
                 return
             if "Mind Blast" in cast_element:
                 crit = fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/tbody/tr[" + str(g) + "]/td[7]").text
                 hit = fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/tbody/tr[" + str(g) + "]/td[9]").text
+                total_fight_data["shadow_priest_info"].append({"name": warlock_name, "hit": hit/100.})
                 print(warlock_name, hit)
                 return 
 
@@ -350,13 +415,13 @@ def getPlayerHitCrit(fight_html, fight_text, warlock_name, warlock_source, playe
             return 1, 1
 
 
-def getRaidComposition(raid_html, warlock_sources):
+def getRaidComposition(raid_html, warlock_sources, boss_id):
     debuff_data={}
     player_data={}
     agg_stats = {"in_isb": 0, "total": 0}
     num_shadow_priests = 0
     num_shadow_warlocks = 0
-    total_fight_data = {"composition": composition.UNKNOWN, "warlock_info": [], "shadow_priest_info": [], "fight_length": -1, "isb_ratio": -1}
+    total_fight_data = {"composition": composition.UNKNOWN, "warlock_info": [], "shadow_priest_info": [], "fight_length": -1, "isb_ratio": -1, "raid_html": raid_html, "boss_id": boss_id}
 
     def determineComp(num_shadow_priests, num_shadow_warlocks):
         if num_shadow_warlocks == 1:
@@ -402,12 +467,13 @@ def getRaidComposition(raid_html, warlock_sources):
             ahref = fight_driver.find_element_by_xpath('/html/body/div[2]/div[2]/div[5]/div/div/div/div['+str(fight_num)+']/a')
             ahref.click()
             fight_html = ahref.get_attribute("href")
-            getDebuffData(fight_html,fight_text,debuff_data, fight_data)
+            getDebuffData(fight_html,fight_text,debuff_data, fight_data, total_fight_data)
             for k,v in warlock_sources.items():
                 player_data[k][fight_text]={}
                 getPlayerBuffData(fight_html, fight_text, k, v, player_data)
+                print(boss_list, "D")
                 class_type, cast_stats = getPlayerCastData(fight_html, fight_text, k, v, player_data, debuff_data[boss_list[0]])
-                getPlayerHitCrit(fight_html, fight_text, k, v, player_data, debuff_data[boss_list[0]])
+                getPlayerHitCrit(fight_html, fight_text, k, v, player_data, debuff_data[boss_list[0]], total_fight_data)
                 if class_type == characterClass.SHADOW_PRIEST or class_type == characterClass.SHADOW_WARLOCK:
                     appendClassStats(agg_stats, cast_stats)
                     if class_type == characterClass.SHADOW_PRIEST: 
@@ -427,13 +493,15 @@ def getRaidComposition(raid_html, warlock_sources):
     if agg_stats['total'] > 0:
         total_fight_data['isb_ratio'] = agg_stats['in_isb']/agg_stats['total']
     print("Fight info", total_fight_data)
+    if total_fight_data["composition"] is not composition.UNKNOWN:
+        insertIntoDB(total_fight_data)
     return debuff_data
     
 
 
-def sweepRaid(raid_html):
+def sweepRaid(raid_html, boss_id):
     comp = getComposition(raid_html)
-    getRaidComposition(raid_html, comp)
+    getRaidComposition(raid_html, comp, boss_id)
 
 def sweepRaids(raid_id, server_id, boss_id, num_pages = 1):
     try:
@@ -446,15 +514,18 @@ def sweepRaids(raid_id, server_id, boss_id, num_pages = 1):
             sweep_raid_driver.get(html)
             sweep_raid_driver.execute_script("return document.documentElement.innerHTML;")
             time.sleep(TIME_BETWEEN_LOAD)
-            for n in range(1,100):
+            for n in range(1,10):
                 try:
                     ahref = sweep_raid_driver.find_element_by_xpath('/html/body/div[2]/div[3]/div/div[4]/div/div[1]/table/tbody/tr['+str(n)+']/td[1]/a')
                 except:
                     print("Failed to find element by xpath. 1")
                     cleanExit()
-                #sweepRaid(ahref.get_attribute("href"))
-                sweepRaid("https://classic.warcraftlogs.com/reports/h7knjxRfvMwcTzda")
-                return
+                # raid_html = "https://classic.warcraftlogs.com/reports/h7knjxRfvMwcTzda"
+                raid_html = ahref.get_attribute("href")
+                if existsInDB(raid_html):
+                    continue
+                sweepRaid(raid_html, boss_id)
+                printBossDB(boss_id)
     except Exception as e:
         print(e)
         print(traceback.format_exc())
@@ -470,164 +541,5 @@ def sweepRaids(raid_id, server_id, boss_id, num_pages = 1):
         # next_fun(html)
     # html_start = "https://classic.warcraftlogs.com/zone/rankings/1005#metric=execution&boss=715&region=6&subregion=13&page=2"
 sweepRaids(1007, 5004, 654)
+
 cleanExit()
-
-
-html_list = []
-html_list_bw = []
-
-driver = webdriver.Chrome(ChromeDriverManager().install(),options=chrome_options)
-driver2 = webdriver.Chrome(ChromeDriverManager().install(),options=chrome_options)
-driver3 = webdriver.Chrome(ChromeDriverManager().install(),options=chrome_options)
-driver4 = webdriver.Chrome(ChromeDriverManager().install(),options=chrome_options)
-char_gear_driver = webdriver.Chrome(ChromeDriverManager().install(),options=chrome_options)
-
-
-def findPages():
-    last_page_num = 2
-    for p in range(1,100):
-        try:
-            main_p = html_start.replace("page=2","page="+str(p))
-            html1 = driver.page_source
-            driver.get(main_p)
-            time.sleep(TIME_BETWEEN_LOAD)
-            html2 = driver.execute_script("return document.documentElement.innerHTML;")
-            val = driver.find_elements_by_xpath('/html/body/div[2]/div[3]/div[2]/div[2]/div/div[3]/div[1]/table/tbody/tr')
-            for v in val:
-                try:
-                    element_value = v.get_attribute('innerHTML')
-                    element_value_split = element_value.split('"')
-                    for e in element_value_split:
-                        try:
-                            if "reports" and "damage-done" in e:
-                                fight_page = "https://classic.warcraftlogs.com/"+e+"&type=damage-done"
-
-                                # GO TO FIGHT PAGE
-                                driver2.get(fight_page)
-                                time.sleep(TIME_BETWEEN_LOAD)
-                                chars = driver2.find_elements_by_xpath('/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[2]/table/tbody/tr')
-                                
-                                for char in chars:
-                                    try:
-                                        char_val = char.get_attribute('innerHTML')
-                                        if "Warlock" in char_val:
-                                            result = re.search("('(.*)')", char_val)
-                                            char_num = str(result.group(1)[1:-1])
-                                            char_page = fight_page + "&source="+char_num + "&view=events"
-                                            char_page = char_page.replace("damage-done","casts")
-
-                                            char_gear_page = fight_page + "&source="+char_num
-                                            char_gear_page = char_gear_page.replace("damage-done","summary")
-
-
-                                            ####
-                                            faction = ""
-                                            r7 = False
-                                            ####
-
-                                            # GO TO WARLOCK CAST PAGE
-                                            driver3.get(char_page)
-                                            # GO TO WARLOCK GEAR PAGE
-                                            char_gear_driver.get(char_gear_page)
-                                            time.sleep(TIME_BETWEEN_LOAD)
-
-                                            ##### GET r7
-                                            try:
-                                                gloves = char_gear_driver.find_element_by_xpath('/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[3]/div[2]/div/table/tbody/tr[10]').get_attribute('innerHTML')
-                                            except:
-                                                continue
-                                            faction_img = char_gear_driver.find_element_by_xpath('/html/body/ul/li[12]/a/span/span[1]').get_attribute('class')
-                                            if "Dreadweave" in gloves:
-                                                r7 = True
-                                            if "faction-0" in faction_img:
-                                                faction = "alliance"
-                                            elif "faction-1" in faction_img:
-                                                faction = "horde"
-                                            else:
-                                                print("ERROR FACTION", faction_img, gloves)
-
-                                            ## BEGIN PARSING CASTS
-                                            cast_rows = driver3.find_elements_by_xpath('/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/tbody[1]/tr')
-                                            start_cast = None
-                                            for cast_row in cast_rows:
-                                                cast_str = cast_row.get_attribute('innerHTML')
-                                                try:
-                                                    time_str = cast_str.split("main-table-number")[1]
-                                                except:
-                                                    print("failed to split", cast_str)
-                                                    continue
-
-                                                minutes = int(time_str[5:7])
-                                                seconds = float(time_str[8:14])
-                                                time_val = minutes*60+seconds
-                                                if start_cast is not None:
-                                                    if time_val - start_cast > 2.5:
-                                                        start_cast = None
-
-                                                if start_cast is None:
-                                                    if "begins casting" in cast_str and "Searing Pain" in cast_str:
-                                                        start_cast = time_val
-                                                else:
-                                                    if "casts" in cast_str and "Searing Pain" in cast_str:
-                                                        data[faction][r7].append(time_val - start_cast)
-                                                        start_cast = None
-                                            calculate()
-                                    except:
-                                        continue
-                        except:
-                            continue
-                except:
-                    continue
-        except:
-            continue
-
-
-def calculate():
-    info = {}
-    print("------------------------------------------------------")
-    avgs = {"alliance":{True:0, False:0}, "horde":{True:0, False:0}}
-    for faction in ["alliance", "horde"]:
-        for r7 in [True, False]:
-            if len(data[faction][r7]) > 0:
-                avgs[faction][r7] = sum(data[faction][r7])/len(data[faction][r7])
-                print("avgs: ", faction, r7, avgs[faction][r7], ", # Samples", len(data[faction][r7]))
-    # print("List of non-burning wish parses: ", no_bw_html_list)
-    # print("BW dmg", data["BW"])
-    # print("non-BW dmg", data["NO_BW"])
-    # print("Calculating -----------------------------")
-    # print("BW AVG: ", bw_avg)
-    # print("NOBW AVG: ", no_bw_avg)
-    # print("RATIO: ",  bw_avg/no_bw_avg)
-    # pickle.dump(bw_html_list,open("bw_html_list","wb"))
-    # pickle.dump(no_bw_html_list,open("nobw_html_list","wb"))
-    # pickle.dump(data["BW"],open("bw_dmg","wb"))
-    # pickle.dump(data["NO_BW"],open("non bw_dmg","wb"))
-    # pickle.dump(data["NO_BW"],open("non bw_dmg","wb"))
-
-
-def gatherData(fight):
-    dmg_list = []
-    chrome_options = Options()
-    #chrome_options.add_argument("--headless")
-    #chrome_options.add_argument("--window-size=1920x1080")
-    driver4 = webdriver.Chrome(ChromeDriverManager().install(),options=chrome_options)
-
-    summary_html = fight
-
-    driver4.get(summary_html)
-    html1 = driver4.page_source
-    time.sleep(1.0)
-    html2 = driver4.execute_script("return document.documentElement.innerHTML;")
-    val = driver4.find_elements_by_xpath('//*[@id="DataTables_Table_0"]/tbody[1]/tr')
-    for v in val:
-        element_value = v.get_attribute('innerHTML')
-        if "Goblin Sapper Charge" in element_value and "(O: " not in element_value:
-            try:
-                dmg = element_value.split('rgb(92%, 27%, 38%)">')[1][:3]
-                if "*" not in dmg:
-                    dmg_list.append(float(dmg))
-            except:
-                print("ERROR", element_value.split('rgb(92%, 27%, 38%)">'))
-    return dmg_list
-
-findPages()
