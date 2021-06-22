@@ -70,6 +70,10 @@ def waitForElement(driver_name, full_xpath):
 def printBossDB(boss_id):
     print("Printing db for boss", boss_id)
     with con:
+        cursor = con.cursor()
+        cursor.execute("SELECT COUNT(*) FROM USER WHERE boss_id == ?", (boss_id,))
+        num = cursor.fetchone()
+        print("There are ", num, "entries")
         data = con.execute("SELECT * FROM USER WHERE boss_id == ?", (boss_id,))
         for row in data:
             print(row)
@@ -532,7 +536,7 @@ def sweepRaids(raid_id, server_id, boss_id, num_pages = 1):
             sweep_raid_driver.get(html)
             sweep_raid_driver.execute_script("return document.documentElement.innerHTML;")
             time.sleep(TIME_BETWEEN_LOAD)
-            for n in range(1,10):
+            for n in range(1,100):
                 try:
                     ahref = sweep_raid_driver.find_element_by_xpath('/html/body/div[2]/div[3]/div/div[4]/div/div[1]/table/tbody/tr['+str(n)+']/td[1]/a')
                 except:
