@@ -145,6 +145,7 @@ fight_driver = webdriver.Chrome(ChromeDriverManager().install(),options=chrome_o
 raid_driver = webdriver.Chrome(ChromeDriverManager().install(),options=chrome_options)
 
 def cleanExit():
+    print("Exiting cleanly...")
     sweep_raid_driver.quit()
     fight_driver.quit()
     raid_driver.quit()
@@ -180,7 +181,6 @@ def getComposition(raid_html):
 
         element_value = character_meta.get_attribute('innerHTML')
         element_value_img = character_img.get_attribute('innerHTML')
-        print(element_value_img)
         if "Warlock" in element_value or "Priest-Shadow" in element_value_img:
             split_for_source = element_value.split("setFilterSource('")[1].split("'")[0]
             split_for_name = element_value.split('">')[1].splitlines()[0]
@@ -444,7 +444,7 @@ def getRaidComposition(raid_html, warlock_sources, boss_id):
     agg_stats = {"in_isb": 0, "total": 0}
     num_shadow_priests = 0
     num_shadow_warlocks = 0
-    total_fight_data = {"composition": composition.UNKNOWN, "warlock_info": [], "shadow_priest_info": [], "fight_length": -1, "isb_ratio": -1, "raid_html": raid_html, "boss_id": boss_id}
+    total_fight_data = {"composition": composition.UNKNOWN, "warlock_info": [], "shadow_priest_info": [], "fight_length": -1, "isb_ratio": -1, "raid_html": "Not set", "boss_id": boss_id}
 
     def determineComp(num_shadow_priests, num_shadow_warlocks):
         if num_shadow_warlocks == 1:
@@ -484,17 +484,16 @@ def getRaidComposition(raid_html, warlock_sources, boss_id):
             fight_text = fight_driver.find_element_by_xpath('/html/body/div[2]/div[2]/div[5]/div/div/div/div['+str(fight_num)+']/a/span[1]').text
             print(fight_text)
         except:
-            print("SKIPPING", fight_num)
             continue
         if fight_text in boss_list:
             ahref = fight_driver.find_element_by_xpath('/html/body/div[2]/div[2]/div[5]/div/div/div/div['+str(fight_num)+']/a')
             ahref.click()
             fight_html = ahref.get_attribute("href")
+            total_fight_data["raid_html"] = fight_html
             getDebuffData(fight_html,fight_text,debuff_data, fight_data, total_fight_data)
             for k,v in warlock_sources.items():
                 player_data[k][fight_text]={}
                 getPlayerBuffData(fight_html, fight_text, k, v, player_data)
-                print(boss_list, "D")
                 class_type, cast_stats = getPlayerCastData(fight_html, fight_text, k, v, player_data, debuff_data[boss_list[0]])
                 getPlayerHitCrit(fight_html, fight_text, k, v, player_data, debuff_data[boss_list[0]], total_fight_data)
                 if class_type == characterClass.SHADOW_PRIEST or class_type == characterClass.SHADOW_WARLOCK:
@@ -505,8 +504,6 @@ def getRaidComposition(raid_html, warlock_sources, boss_id):
                         num_shadow_warlocks += 1
 
 
-    print(player_data)
-    print(debuff_data)
     comp = determineComp(num_shadow_priests, num_shadow_warlocks)
     print("Composition determined: ", comp)
     total_fight_data['composition'] = comp
@@ -531,7 +528,7 @@ def sweepRaids(raid_id, server_id, boss_id, num_pages = 1):
         html = "https://classic.warcraftlogs.com/zone/reports?zone="+str(raid_id)+"&boss="+str(boss_id)+"&difficulty=0&class=Any&spec=Any&keystone=0&kills=2&duration=0"
         page_num = random.randint(1,4)
         for i in range(num_pages):
-            html = "https://classic.warcraftlogs.com/zone/reports?zone="+str(raid_id)+"&boss=0&difficulty=0&class=Any&spec=Any&keystone=0&kills=2&duration=0&page="+str(random.randint(1,3))
+            html = "https://classic.warcraftlogs.com/zone/reports?zone="+str(raid_id)+"&boss=0&difficulty=0&class=Any&spec=Any&keystone=0&kills=2&duration=0&page="+str(random.randint(1,5))+"&server="+str(server_id)
             print("Sweeping raid", html)
             sweep_raid_driver.get(html)
             sweep_raid_driver.execute_script("return document.documentElement.innerHTML;")
@@ -546,7 +543,11 @@ def sweepRaids(raid_id, server_id, boss_id, num_pages = 1):
                 raid_html = ahref.get_attribute("href")
                 if existsInDB(raid_html):
                     continue
-                sweepRaid(raid_html, boss_id)
+                try:
+                    sweepRaid(raid_html, boss_id)
+                except:
+                    time.sleep(10)
+                    continue
                 printBossDB(boss_id)
                 time.sleep(5)
     except Exception as e:
@@ -563,6 +564,6 @@ def sweepRaids(raid_id, server_id, boss_id, num_pages = 1):
 
         # next_fun(html)
     # html_start = "https://classic.warcraftlogs.com/zone/rankings/1005#metric=execution&boss=715&region=6&subregion=13&page=2"
-sweepRaids(1007, 5004, 654)
+sweepRaids(1007, 5012, 654)
 
 cleanExit()
