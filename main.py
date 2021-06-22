@@ -21,6 +21,8 @@ from webdriver_manager.chrome import ChromeDriverManager
 import sqlite3 as sl
 import json
 
+MAX_DELAY = 5
+
 con = sl.connect('isb.db')
 try:
     with con:
@@ -57,6 +59,13 @@ class composition(Enum):
     W4_1SP = 9
     W5_1SP = 10
     UNKNOWN = 11
+
+def waitForElement(driver_name, full_xpath):
+    try:
+        WebDriverWait(driver_name, MAX_DELAY).until(EC.presence_of_element_located((By.XPATH, full_xpath)))
+    except TimeoutException:
+        print("Loading took too much time", full_xpath)
+        return
 
 def printBossDB(boss_id):
     print("Printing db for boss", boss_id)
@@ -100,7 +109,6 @@ with con:
     for row in data:
         print(row)
 
-MAX_DELAY = 5
 PAGE_DELAY = 2
 
 boss_list = ["Maiden of Virtue Normal"]
@@ -396,23 +404,34 @@ def getPlayerHitCrit(fight_html, fight_text, warlock_name, warlock_source, playe
                     hit = fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/tbody/tr[" + str(g) + "]/td["+str(hit_index)+"]").text
                 else:
                     hit = "0%"
+                if "-" in hit:
+                    hit = "0%"
+                if "-" in crit:
+                    crit = "0%"
                 total_fight_data["warlock_info"].append({"name": warlock_name, "hit": 1.0 - float(hit[:-1])/100., "crit": float(crit[:-1])/100.})
                 print("sb", warlock_name, hit, crit)
                 return
             if "Mind Blast" in cast_element:
-                crit = fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/tbody/tr[" + str(g) + "]/td[7]").text
-                hit = fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/tbody/tr[" + str(g) + "]/td[9]").text
-                total_fight_data["shadow_priest_info"].append({"name": warlock_name, "hit": hit/100.})
+                if hit_index is not None:
+                    hit = fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/tbody/tr[" + str(g) + "]/td["+str(hit_index)+"]").text
+                else:
+                    hit = "0%"
+                if "-" in hit:
+                    hit = "0%"
+                total_fight_data["shadow_priest_info"].append({"name": warlock_name, "hit": 1.0 - float(hit[:-1])/100.})
                 print(warlock_name, hit)
                 return 
+            if "Incinerate" in cast_element:
+                casted_incinerate = True
 
         except Exception as e:
+            if casted_incinerate:
+                print("Warlock", warlock_name, "was a firelock")
+                return
             print(e)
             print(player_cast_html)
             print(traceback.format_exc())
-
-
-            return 1, 1
+            return
 
 
 def getRaidComposition(raid_html, warlock_sources, boss_id):
@@ -508,7 +527,6 @@ def sweepRaids(raid_id, server_id, boss_id, num_pages = 1):
         html = "https://classic.warcraftlogs.com/zone/reports?zone="+str(raid_id)+"&boss="+str(boss_id)+"&difficulty=0&class=Any&spec=Any&keystone=0&kills=2&duration=0"
         page_num = random.randint(1,4)
         for i in range(num_pages):
-
             html = "https://classic.warcraftlogs.com/zone/reports?zone="+str(raid_id)+"&boss=0&difficulty=0&class=Any&spec=Any&keystone=0&kills=2&duration=0&page="+str(random.randint(1,3))
             print("Sweeping raid", html)
             sweep_raid_driver.get(html)
@@ -526,6 +544,7 @@ def sweepRaids(raid_id, server_id, boss_id, num_pages = 1):
                     continue
                 sweepRaid(raid_html, boss_id)
                 printBossDB(boss_id)
+                time.sleep(5)
     except Exception as e:
         print(e)
         print(traceback.format_exc())
