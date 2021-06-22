@@ -74,9 +74,9 @@ def printBossDB(boss_id):
         cursor.execute("SELECT COUNT(*) FROM USER WHERE boss_id == ?", (boss_id,))
         num = cursor.fetchone()
         print("There are ", num, "entries")
-        data = con.execute("SELECT * FROM USER WHERE boss_id == ?", (boss_id,))
-        for row in data:
-            print(row)
+        # data = con.execute("SELECT * FROM USER WHERE boss_id == ?", (boss_id,))
+        # for row in data:
+        #     print(row)
 
 def insertIntoDB(fight_info):
     sql = 'INSERT INTO USER (raid_html, composition, warlock_info, shadow_priest_info, fight_length, isb_ratio, boss_id) values(?, ?, ?, ?, ?, ?, ?)'
@@ -403,7 +403,7 @@ def getPlayerHitCrit(fight_html, fight_text, warlock_name, warlock_source, playe
                 if crit_index is not None:
                     crit = fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/tbody/tr["+str(g)+"]/td["+str(crit_index)+"]").text
                 else:
-                    crit = 0
+                    crit = "0%"
                 if hit_index is not None:
                     hit = fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/tbody/tr[" + str(g) + "]/td["+str(hit_index)+"]").text
                 else:
@@ -564,6 +564,7 @@ def sweepRaids(raid_id, server_id, boss_id, num_pages = 1):
 
         # next_fun(html)
     # html_start = "https://classic.warcraftlogs.com/zone/rankings/1005#metric=execution&boss=715&region=6&subregion=13&page=2"
-sweepRaids(1007, 5012, 654)
+server_dict = {"whitemane": 5012, "faerlina": 5003}
+sweepRaids(1007, server_dict["faerlina"], 654)
 
 cleanExit()
