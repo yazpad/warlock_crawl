@@ -1,7 +1,7 @@
 from list_dict_DB import list_dict_DB
 from selenium.webdriver.common.by import By
 import traceback
-import enums
+from enums import composition, characterClass
 
 
 from selenium.webdriver.support import expected_conditions as EC
@@ -55,9 +55,9 @@ def printBossDB(boss_id):
         cursor.execute("SELECT COUNT(*) FROM USER WHERE boss_id == ?", (boss_id,))
         num = cursor.fetchone()
         print("There are ", num, "entries")
-        # data = con.execute("SELECT * FROM USER WHERE boss_id == ?", (boss_id,))
-        # for row in data:
-        #     print(row)
+        data = con.execute("SELECT * FROM USER WHERE boss_id == ?", (boss_id,))
+        for row in data:
+            print(row)
 
 def insertIntoDB(fight_info):
     sql = 'INSERT INTO USER (raid_html, composition, warlock_info, shadow_priest_info, fight_length, isb_ratio, boss_id) values(?, ?, ?, ?, ?, ?, ?)'
