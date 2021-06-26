@@ -18,4 +18,14 @@ class composition(Enum):
     W4_1SP = 9
     W5_1SP = 10
     UNKNOWN = 11
+    W1_2SP = 12
+    W2_2SP = 13
+    W3_2SP = 14
+    W4_2SP = 15
+    W5_2SP = 16
+    W1_3SP = 17
+    W2_3SP = 18
+    W3_3SP = 19
+    W4_3SP = 20
+    W5_3SP = 21
 
