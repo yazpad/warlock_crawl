@@ -29,3 +29,50 @@ class composition(Enum):
     W4_3SP = 20
     W5_3SP = 21
 
+def compToNum(comp):
+    if comp == str(composition.W1_0SP):
+        return 1
+    if comp == str(composition.W2_0SP):
+        return 2
+    if comp == str(composition.W3_0SP):
+        return 3
+    if comp == str(composition.W4_0SP):
+        return 4
+    if comp == str(composition.W5_0SP):
+        return 5
+    if comp == str(composition.W1_1SP):
+        return 2
+    if comp == str(composition.W2_1SP):
+        return 3
+    if comp == str(composition.W3_1SP):
+        return 4
+    if comp == str(composition.W4_1SP):
+        return 5
+    if comp == str(composition.W5_1SP):
+        return 6
+    if comp == str(composition.W1_2SP):
+        return 3
+    if comp == str(composition.W2_2SP):
+        return 4
+    if comp == str(composition.W3_2SP):
+        return 5
+    if comp == str(composition.W4_2SP):
+        return 6
+    if comp == str(composition.W5_2SP):
+        return 7
+    if comp == str(composition.W1_3SP):
+        return 4
+    if comp == str(composition.W2_3SP):
+        return 5
+    if comp == str(composition.W3_3SP):
+        return 6
+    if comp == str(composition.W4_3SP):
+        return 7
+    if comp == str(composition.W5_3SP):
+        return 8
+
+
+
+
+
+

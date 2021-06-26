@@ -7,14 +7,97 @@ from sklearn import datasets
 import sqlite3 as sl
 from json import loads
 
-from enums import composition
+from enums import composition, compToNum
+from itertools import permutations
     
 
-COMP = composition.W1_1SP
+COMP = composition.W4_1SP
 
 # Import train_test_split function
 from sklearn.model_selection import train_test_split
 con = sl.connect('isb.db')
+
+def checkEntry(row, comp):
+    if comp == str(composition.W1_0SP):
+        if len(loads(row[2])) != 1:
+            return False
+        if len(loads(row[3])) != 0:
+            return False
+    elif comp == str(composition.W2_0SP):
+        if len(loads(row[2])) != 2:
+            return False
+        if len(loads(row[3])) != 0:
+            return False
+    elif comp == str(composition.W1_1SP):
+        if len(loads(row[2])) != 1:
+            return False
+        if len(loads(row[3])) != 1:
+            return False
+    else:
+        return False
+    return True
+
+def getAllData(boss_id):
+    data_for_size = {1 : {"X": [], "Y": []},
+                     2 : {"X": [], "Y": []},
+                     3 : {"X": [], "Y": []},
+                     4 : {"X": [], "Y": []},
+                     5 : {"X": [], "Y": []},
+                     6 : {"X": [], "Y": []},
+                     7 : {"X": [], "Y": []},
+                     8 : {"X": [], "Y": []}}
+
+    permute_init = {}
+    for i in range(8):
+        permute_init[i] = []
+        for j in range(i):
+            permute_init[i].append(j)
+
+    spec_defs = {'shadow': 0, 'affliction': .33, 'demonology': .66, 'destruction': 1.0}
+
+    with con:
+        cursor = con.cursor()
+        cursor.execute("SELECT COUNT(*) FROM USER WHERE boss_id == ?", (boss_id,))
+        num = cursor.fetchone()
+        print("There are ", num, "entries")
+        data = con.execute("SELECT * FROM USER WHERE boss_id == ?", (boss_id,))
+        for row in data:
+            comp = str(row[1])
+            num_players = compToNum(comp)
+            print(row, comp, num_players)
+
+            order = []
+            #Num locks
+            warlock_info = loads(row[2])
+            priest_info = loads(row[3])
+            for i in range(len(warlock_info)):
+                if warlock_info[i].get('spec') is None:
+                    warlock_info[i]['spec'] = "destruction"
+                order.append([spec_defs[warlock_info[i]['spec']], warlock_info[i]['hit'], warlock_info[i]['crit']])
+            for i in range(len(priest_info)):
+                if priest_info[i].get('spec') is None:
+                    priest_info[i]['spec'] = "shadow"
+                order.append([spec_defs[priest_info[i]['spec']], priest_info[i]['hit'], 0])
+
+            X = data_for_size[num_players]['X']
+            Y = data_for_size[num_players]['Y']
+            if not checkEntry(row,comp):
+                continue
+            # print(row, row[5])
+            # time, warlock 1's hit, warlock 1's crit
+            for perm in list(permutations(permute_init[num_players])):
+                X.append([row[4]])
+                if row[5] == -1:
+                    Y.append(0)
+                else:
+                    Y.append(row[5])
+                for i in perm:
+                    for val in order[i]:
+                        X[-1].append(val)
+
+        return data_for_size
+
+print(getAllData(654))
 
 def getTrainingData(boss_id, comp):
     print("Printing db for boss", boss_id)
@@ -71,7 +154,7 @@ def getTrainingData(boss_id, comp):
 
     print(avg_hit/len(Y))
     return X,Y
-X,Y = getTrainingData(654, COMP)
+X,Y = getTrainingData(661, COMP)
 
 # Split dataset into training set and test set
 X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size=0.2) # 70% training and 30% test
