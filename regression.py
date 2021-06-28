@@ -33,6 +33,76 @@ def checkEntry(row, comp):
             return False
         if len(loads(row[3])) != 1:
             return False
+    elif comp == str(composition.W2_1SP):
+        if len(loads(row[2])) != 2:
+            return False
+        if len(loads(row[3])) != 1:
+            return False
+    elif comp == str(composition.W3_1SP):
+        if len(loads(row[2])) != 3:
+            return False
+        if len(loads(row[3])) != 1:
+            return False
+    elif comp == str(composition.W4_1SP):
+        if len(loads(row[2])) != 4:
+            return False
+        if len(loads(row[3])) != 1:
+            return False
+    elif comp == str(composition.W5_1SP):
+        if len(loads(row[2])) != 5:
+            return False
+        if len(loads(row[3])) != 1:
+            return False
+    elif comp == str(composition.W1_2SP):
+        if len(loads(row[2])) != 1:
+            return False
+        if len(loads(row[3])) != 2:
+            return False
+    elif comp == str(composition.W2_2SP):
+        if len(loads(row[2])) != 2:
+            return False
+        if len(loads(row[3])) != 2:
+            return False
+    elif comp == str(composition.W3_2SP):
+        if len(loads(row[2])) != 3:
+            return False
+        if len(loads(row[3])) != 2:
+            return False
+    elif comp == str(composition.W4_2SP):
+        if len(loads(row[2])) != 4:
+            return False
+        if len(loads(row[3])) != 2:
+            return False
+    elif comp == str(composition.W5_2SP):
+        if len(loads(row[2])) != 5:
+            return False
+        if len(loads(row[3])) != 2:
+            return False
+    elif comp == str(composition.W1_3SP):
+        if len(loads(row[2])) != 1:
+            return False
+        if len(loads(row[3])) != 3:
+            return False
+    elif comp == str(composition.W2_3SP):
+        if len(loads(row[2])) != 2:
+            return False
+        if len(loads(row[3])) != 3:
+            return False
+    elif comp == str(composition.W3_3SP):
+        if len(loads(row[2])) != 3:
+            return False
+        if len(loads(row[3])) != 3:
+            return False
+    elif comp == str(composition.W4_3SP):
+        if len(loads(row[2])) != 4:
+            return False
+        if len(loads(row[3])) != 3:
+            return False
+    elif comp == str(composition.W5_3SP):
+        if len(loads(row[2])) != 5:
+            return False
+        if len(loads(row[3])) != 3:
+            return False
     else:
         return False
     return True
@@ -73,31 +143,118 @@ def getAllData(boss_id):
             for i in range(len(warlock_info)):
                 if warlock_info[i].get('spec') is None:
                     warlock_info[i]['spec'] = "destruction"
-                order.append([spec_defs[warlock_info[i]['spec']], warlock_info[i]['hit'], warlock_info[i]['crit']])
+                order.append((spec_defs[warlock_info[i]['spec']], warlock_info[i]['hit'], warlock_info[i]['crit']))
             for i in range(len(priest_info)):
                 if priest_info[i].get('spec') is None:
                     priest_info[i]['spec'] = "shadow"
-                order.append([spec_defs[priest_info[i]['spec']], priest_info[i]['hit'], 0])
+                order.append((spec_defs[priest_info[i]['spec']], priest_info[i]['hit'], 0))
 
-            X = data_for_size[num_players]['X']
-            Y = data_for_size[num_players]['Y']
             if not checkEntry(row,comp):
                 continue
             # print(row, row[5])
             # time, warlock 1's hit, warlock 1's crit
             for perm in list(permutations(permute_init[num_players])):
-                X.append([row[4]])
+                data_for_size[num_players]['X'].append([row[4]])
                 if row[5] == -1:
-                    Y.append(0)
+                    data_for_size[num_players]['Y'].append(0)
                 else:
-                    Y.append(row[5])
+                    data_for_size[num_players]['Y'].append(row[5])
                 for i in perm:
                     for val in order[i]:
-                        X[-1].append(val)
+                        data_for_size[num_players]['X'][-1].append(val)
 
         return data_for_size
 
-print(getAllData(654))
+data_by_size = getAllData(654)
+rfr_by_size = {}
+poly_regressor_by_size = {}
+
+#Import scikit-learn metrics module for accuracy calculation
+from sklearn import metrics
+from sklearn.preprocessing import PolynomialFeatures
+from sklearn.pipeline import make_pipeline
+from sklearn.linear_model import LinearRegression
+
+for i in range(1,9):
+    if len(data_by_size[i]['X']) == 0:
+        continue
+    rfr_by_size[i]=RandomForestRegressor(n_estimators=30)
+    poly_regressor_by_size[i]= {"features": PolynomialFeatures(degree=2), "regressor": LinearRegression(fit_intercept=False)}
+
+    X_train, X_test, y_train, y_test = train_test_split(data_by_size[i]['X'], data_by_size[i]['Y'], test_size=0.2) # 70% training and 30% test
+    rfr_by_size[i].fit(X_train,y_train)
+    rfr_by_size[i].fit(X_train,y_train)
+
+    X_train_poly = poly_regressor_by_size[i]['features'].fit_transform(X_train)
+    poly_regressor_by_size[i]['regressor'].fit(X_train_poly, y_train)
+
+    y_pred=rfr_by_size[i].predict(X_test)
+    y_pred_poly=poly_regressor_by_size[i]['regressor'].predict(poly_regressor_by_size[i]['features'].fit_transform(X_test))
+
+    print(len(X_test))
+    #for k in range(len(X_test)):
+    #    print(X_test[k], y_pred[k])
+    print('Mean Absolute Error (MAE) for RFR:', metrics.mean_absolute_error(y_test, y_pred), "num warlocks", i)
+    print('Mean Absolute Error (MAE) for polyreg:', metrics.mean_absolute_error(y_test, y_pred_poly), "num warlocks", i)
+
+def genCritDataFromNum(i, num_locks, num_priests):
+    if num_locks == 1:
+        if num_priests == 0:
+            return [95, 1.0, .94, i/100.]
+        if num_priests == 1:
+            return [95, 1.0, .94, i/100., 0.0, .94, 0]
+    if num_locks == 2:
+        if num_priests == 0:
+            return [95, 1.0, .94, i/100., 1.0, .94, i/100.]
+        if num_priests == 1:
+            return [95, 1.0, .94, i/100., 1.0, .94, .25, 0.0, .94, 0.0]
+
+
+# # Data for plotting
+
+import matplotlib.pyplot as plt
+import numpy as np
+
+fig, ax = plt.subplots()
+
+def plotReg(num_locks, num_priests):
+    P = []
+    Z = []
+    x = []
+    y = []
+    for i in range(50):
+        P.append(genCritDataFromNum(i, num_locks, num_priests))
+        Z.append(genCritDataFromNum(i, num_locks, num_priests))
+        x.append(i/100.)
+        y.append(1-(1-.95*i/100.)**4)
+
+    s = rfr_by_size[num_locks+num_priests].predict(P)
+
+    z = poly_regressor_by_size[num_locks+num_priests]['regressor'].predict(poly_regressor_by_size[num_locks+num_priests]['features'].fit_transform(Z))
+
+    ax.plot(x,s, label="random forest regressor, " + str(num_locks)+"W - " + str(num_priests)+"SP")
+    ax.plot(x,z, label="polynomial regressor, " + str(num_locks)+"W - " + str(num_priests)+"SP")
+    ax.plot(x,y, label="binomial distribution, " + str(num_locks)+"W - " + str(num_priests)+"SP")
+
+
+
+plotReg(1, 0)
+plotReg(1, 1)
+#plotReg(2, 0)
+
+for v in range(len(data_by_size[1]['X'])):
+    ax.plot(data_by_size[1]['X'][v][3],data_by_size[1]['Y'][v], '.')
+
+ax.legend()
+ax.set_xlim([0,.6])
+ax.set_ylim([0,1.0])
+ax.set_title("ISB uptime vs Crit\n Composition=1 Warlock, Hit=.94, Time=.95, Boss=Maiden of Virtue")
+ax.set_ylabel("ISB Uptime")
+ax.set_xlabel("Crit rate")
+plt.grid()
+
+plt.show()
+exit()
 
 def getTrainingData(boss_id, comp):
     print("Printing db for boss", boss_id)
@@ -131,6 +288,14 @@ def getTrainingData(boss_id, comp):
         num = cursor.fetchone()
         print("There are ", num, "entries")
         data = con.execute("SELECT * FROM USER WHERE boss_id == ? and composition == ?", (boss_id, str(comp)))
+        #Inject 0 intercept data
+        for k in range(1,9):
+            for g in [0,.33,.66,1.0]:
+                for i in range(0,100,10):
+                    X.append([i])
+                    for j in range(k):
+                        X[-1].append([g,0,0])
+
         for row in data:
             if not checkEntry(row,comp):
                 continue
@@ -174,7 +339,7 @@ polyreg=make_pipeline(scaler,PolynomialFeatures(degree),LinearRegression())
 
 poly = PolynomialFeatures(degree=2)
 
-polyreg = LinearRegression(fit_intercept=False)
+polyreg = LinearRegression(fit_intercept=True)
 
 
 from sklearn.neural_network import MLPRegressor
@@ -200,9 +365,6 @@ X_test_ = poly.fit_transform(X_test)
 y_pred2=polyreg.predict(X_test_)
 print(X_test, y_pred)
 
-#Import scikit-learn metrics module for accuracy calculation
-from sklearn import metrics
-print('Mean Absolute Error (MAE):', metrics.mean_absolute_error(y_test, y_pred))
 print('Mean Absolute Error (MAE):', metrics.mean_absolute_error(y_test, y_pred2))
 
 # Model Accuracy, how often is the classifier correct?
@@ -217,26 +379,33 @@ def genCritData(i, comp):
     elif comp == composition.W1_1SP:
         return [95, .94, i/100., .95]
 
-# # Data for plotting
-P = []
-Z = []
-x = []
-y = []
-for i in range(50):
-    P.append(genCritData(i, COMP))
-    Z.append(genCritData(i, COMP))
-    x.append(i/100.)
-    y.append(1-(1-.95*i/100.)**4)
+def genCritDataFromNum(i, num):
+    if num == 1:
+        return [95, 1.0, .94, i/100.]
 
-s = clf.predict(P)
-
-Z = poly.fit_transform(Z)
-z = polyreg.predict(Z)
 
 fig, ax = plt.subplots()
-ax.plot(x,s)
-ax.plot(x,y)
-ax.plot(x,z)
+
+def plotReg(num):
+    # # Data for plotting
+    P = []
+    Z = []
+    x = []
+    y = []
+    for i in range(50):
+        P.append(genCritData(i, COMP))
+        Z.append(genCritData(i, COMP))
+        x.append(i/100.)
+        y.append(1-(1-.95*i/100.)**4)
+
+    s = clf.predict(P)
+
+    Z = poly.fit_transform(Z)
+    z = polyreg.predict(Z)
+
+    ax.plot(x,s)
+    ax.plot(x,y)
+    ax.plot(x,z)
 
 
 # # Data for plotting
