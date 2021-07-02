@@ -1,5 +1,9 @@
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.gaussian_process import GaussianProcessRegressor
+from sklearn.neighbors import KNeighborsRegressor
+from sklearn.neural_network import MLPRegressor
+from sklearn import preprocessing
+
 
 from sklearn.svm import SVR
 from sklearn import datasets
@@ -9,9 +13,13 @@ from json import loads
 
 from enums import composition, compToNum
 from itertools import permutations
+import random
     
 
 COMP = composition.W4_1SP
+BOSS_ID = "654"
+#BOSS_ID = "*"
+PLOT_SETTINGS = {"mlp": False, "polyreg": False, "rfr": True, 'binomial_distribution': True, "comps": [str(composition.W1_0SP), str(composition.W2_0SP), str(composition.W1_1SP), str(composition.W2_1SP), str(composition.W3_1SP)]}
 
 # Import train_test_split function
 from sklearn.model_selection import train_test_split
@@ -25,6 +33,11 @@ def checkEntry(row, comp):
             return False
     elif comp == str(composition.W2_0SP):
         if len(loads(row[2])) != 2:
+            return False
+        if len(loads(row[3])) != 0:
+            return False
+    elif comp == str(composition.W3_0SP):
+        if len(loads(row[2])) != 3:
             return False
         if len(loads(row[3])) != 0:
             return False
@@ -127,11 +140,19 @@ def getAllData(boss_id):
 
     with con:
         cursor = con.cursor()
-        cursor.execute("SELECT COUNT(*) FROM USER WHERE boss_id == ?", (boss_id,))
-        num = cursor.fetchone()
-        print("There are ", num, "entries")
-        data = con.execute("SELECT * FROM USER WHERE boss_id == ?", (boss_id,))
+        if boss_id == "*":
+            cursor.execute("SELECT COUNT(*) FROM USER")
+            num = cursor.fetchone()
+            print("There are ", num, "entries")
+            data = con.execute("SELECT * FROM USER")
+        else:
+            cursor.execute("SELECT COUNT(*) FROM USER WHERE boss_id == ?", (str(boss_id),))
+            num = cursor.fetchone()
+            print("There are ", num, "entries")
+            data = con.execute("SELECT * FROM USER WHERE boss_id == ?", (str(boss_id),))
         for row in data:
+            if "sample" in row[0]:
+                continue
             comp = str(row[1])
             num_players = compToNum(comp)
             print(row, comp, num_players)
@@ -141,7 +162,7 @@ def getAllData(boss_id):
             warlock_info = loads(row[2])
             priest_info = loads(row[3])
             for i in range(len(warlock_info)):
-                if warlock_info[i].get('spec') is None:
+                if warlock_info[i].get('spec') is None or warlock_info[i].get('spec')=="unknown":
                     warlock_info[i]['spec'] = "destruction"
                 order.append((spec_defs[warlock_info[i]['spec']], warlock_info[i]['hit'], warlock_info[i]['crit']))
             for i in range(len(priest_info)):
@@ -165,37 +186,202 @@ def getAllData(boss_id):
 
         return data_for_size
 
-data_by_size = getAllData(654)
+def getTrainingData(boss_id):
+    print("Printing db for boss", boss_id)
+    X = []
+    Y = []
+    avg_hit = 0
+    data_by_comp = {}
+
+    def insertOrigin(X,Y,comp):
+        random_time = random.randint(100,200)
+        random_hit = random.randint(85,100)/100.
+        crit = 0
+        if comp == str(composition.W1_0SP):
+            X.append([random_time, random_hit, crit])
+            Y.append(0)
+        if comp == str(composition.W1_1SP):
+            X.append([random_time, random_hit, crit, random_hit])
+            Y.append(0)
+        if comp == str(composition.W2_0SP):
+            X.append([random_time, random_hit, crit, random_hit, crit])
+            Y.append(0)
+        if comp == str(composition.W2_1SP):
+            X.append([random_time, random_hit, crit, random_hit, crit, random_hit])
+            Y.append(0)
+        if comp == str(composition.W3_0SP):
+            X.append([random_time, random_hit, crit, random_hit, crit, random_hit, crit])
+            Y.append(0)
+        if comp == str(composition.W3_1SP):
+            X.append([random_time, random_hit, crit, random_hit, crit, random_hit, crit, random_hit])
+            Y.append(0)
+
+    def insertMax(X,Y,comp):
+        random_time = random.randint(100,200)
+        random_hit = random.randint(85,100)/100.
+        crit = 5
+        if comp == str(composition.W1_0SP):
+            X.append([random_time, random_hit, crit])
+            Y.append(1)
+        if comp == str(composition.W1_1SP):
+            X.append([random_time, random_hit, crit, random_hit])
+            Y.append(1)
+        if comp == str(composition.W2_0SP):
+            X.append([random_time, random_hit, crit, random_hit, crit])
+            Y.append(1)
+        if comp == str(composition.W2_1SP):
+            X.append([random_time, random_hit, crit, random_hit, crit, random_hit])
+            Y.append(1)
+        if comp == str(composition.W3_0SP):
+            X.append([random_time, random_hit, crit, random_hit, crit, random_hit, crit])
+            Y.append(1)
+        if comp == str(composition.W3_1SP):
+            X.append([random_time, random_hit, crit, random_hit, crit, random_hit, crit, random_hit])
+            Y.append(1)
+
+    with con:
+        cursor = con.cursor()
+        if boss_id == "*":
+            cursor.execute("SELECT COUNT(*) FROM USER")
+            num = cursor.fetchone()
+            print("There are ", num, "entries")
+            data = con.execute("SELECT * FROM USER")
+        else:
+            cursor.execute("SELECT COUNT(*) FROM USER WHERE boss_id == ?", (str(boss_id),))
+            num = cursor.fetchone()
+            print("There are ", num, "entries")
+            data = con.execute("SELECT * FROM USER WHERE boss_id == ?", (str(boss_id),))
+        #Inject 0 intercept data
+        for k in range(1,9):
+            for g in [0,.33,.66,1.0]:
+                for i in range(0,100,10):
+                    X.append([i])
+                    for j in range(k):
+                        X[-1].append([g,0,0])
+
+        for row in data:
+            comp = str(row[1])
+            if not checkEntry(row,comp):
+                continue
+            if data_by_comp.get(comp) is None:
+                data_by_comp[comp] = {"X": [], "Y": []}
+            # print(row, row[5])
+            # time, warlock 1's hit, warlock 1's crit
+            X = data_by_comp[comp]['X']
+            Y = data_by_comp[comp]['Y']
+
+            insertOrigin(X,Y,comp)
+            #insertMax(X,Y,comp)
+            # print(X,Y)
+            # X.append(insertOrigin(comp))
+            # Y.append(0)
+
+            X.append([row[4]])
+            for i in range(len(loads(row[2]))):
+                X[-1].append(loads(row[2])[i]['hit'])
+                X[-1].append(loads(row[2])[i]['crit'])
+            for i in range(len(loads(row[3]))):
+                X[-1].append(loads(row[3])[i]['hit'])
+            avg_hit += loads(row[2])[0]['hit']
+            if row[5] == -1:
+                Y.append(0)
+            else:
+                Y.append(row[5])
+
+    return data_by_comp
+
+data_by_size = getAllData(BOSS_ID)
 rfr_by_size = {}
 poly_regressor_by_size = {}
+
+data_by_comp = getTrainingData(BOSS_ID)
+print(data_by_comp)
+rfr_by_comp = {}
+poly_regressor_by_comp = {}
+mlp_by_comp = {}
+mlp_scaler_by_comp = {}
 
 #Import scikit-learn metrics module for accuracy calculation
 from sklearn import metrics
 from sklearn.preprocessing import PolynomialFeatures
 from sklearn.pipeline import make_pipeline
 from sklearn.linear_model import LinearRegression
+from scipy.optimize import curve_fit
+import numpy as np
 
-for i in range(1,9):
-    if len(data_by_size[i]['X']) == 0:
+
+
+def sigmoid(x, a, b, c, d, e):
+    val = b*x[1]+c*x[2]+d*x[3]
+    y = a / (1 + np.exp(-e*val))-.5
+    return (y)
+
+def train_by_num():
+    for i in range(1,9):
+        if len(data_by_size[i]['X']) == 0:
+            continue
+        rfr_by_size[i]=RandomForestRegressor(n_estimators=100)
+        poly_regressor_by_size[i]= {"features": PolynomialFeatures(degree=2), "regressor": LinearRegression(fit_intercept=False)}
+
+        X_train, X_test, y_train, y_test = train_test_split(data_by_size[i]['X'], data_by_size[i]['Y'], test_size=0.2) # 70% training and 30% test
+        rfr_by_size[i].fit(X_train,y_train)
+        rfr_by_size[i].fit(X_train,y_train)
+
+        X_train_poly = poly_regressor_by_size[i]['features'].fit_transform(X_train)
+        poly_regressor_by_size[i]['regressor'].fit(X_train_poly, y_train)
+
+        y_pred=rfr_by_size[i].predict(X_test)
+        y_pred_poly=poly_regressor_by_size[i]['regressor'].predict(poly_regressor_by_size[i]['features'].fit_transform(X_test))
+
+        # if i == 1:
+        #     p0 = [1.0,.001,.001,.001, 10.0]
+        #     time = [item[0] for item in X_train]
+        #     spec = [item[1] for item in X_train]
+        #     hit = [item[2] for item in X_train]
+        #     crit = [item[3] for item in X_train]
+        #     popt, pcov = curve_fit(sigmoid, (time,spec,hit,crit), y_train,p0, method='dogbox')
+        #     y_pred3 = []
+        #     for v in X_test:
+        #         print(v)
+        #         y_pred3.append(sigmoid(v, float(popt[0]), float(popt[1]), float(popt[2]), float(popt[3]), float(popt[4])))
+        #     print("Popt", popt)
+        #     print('Mean Absolute Error (MAE) for logreg:', metrics.mean_absolute_error(y_test, y_pred3), "num warlocks", i)
+
+
+        print(len(X_test))
+        #for k in range(len(X_test)):
+        #    print(X_test[k], y_pred[k])
+        print('Mean Absolute Error (MAE) for RFR:', metrics.mean_absolute_error(y_test, y_pred), "num warlocks", i)
+        print('Mean Absolute Error (MAE) for polyreg:', metrics.mean_absolute_error(y_test, y_pred_poly), "num warlocks", i)
+
+for comp, data in data_by_comp.items():
+    if comp not in PLOT_SETTINGS['comps']:
         continue
-    rfr_by_size[i]=RandomForestRegressor(n_estimators=30)
-    poly_regressor_by_size[i]= {"features": PolynomialFeatures(degree=2), "regressor": LinearRegression(fit_intercept=False)}
+    rfr_by_comp[comp]=RandomForestRegressor(n_estimators=1000, bootstrap=True,criterion="mse", max_depth=4)
+    #rfr_by_comp[comp]=KNeighborsRegressor(n_neighbors=10, weights='distance')
+    poly_regressor_by_comp[comp]= {"features": PolynomialFeatures(degree=2), "regressor": LinearRegression(fit_intercept=False)}
+    mlp_by_comp[comp]=MLPRegressor(random_state=1, max_iter=500, solver="adam", alpha=.00001)
 
-    X_train, X_test, y_train, y_test = train_test_split(data_by_size[i]['X'], data_by_size[i]['Y'], test_size=0.2) # 70% training and 30% test
-    rfr_by_size[i].fit(X_train,y_train)
-    rfr_by_size[i].fit(X_train,y_train)
+    X_train, X_test, y_train, y_test = train_test_split(data_by_comp[comp]['X'], data_by_comp[comp]['Y'], test_size=0.2) # 70% training and 30% test
+    rfr_by_comp[comp].fit(X_train,y_train)
 
-    X_train_poly = poly_regressor_by_size[i]['features'].fit_transform(X_train)
-    poly_regressor_by_size[i]['regressor'].fit(X_train_poly, y_train)
+    X_train_poly = poly_regressor_by_comp[comp]['features'].fit_transform(X_train)
+    poly_regressor_by_comp[comp]['regressor'].fit(X_train_poly, y_train)
 
-    y_pred=rfr_by_size[i].predict(X_test)
-    y_pred_poly=poly_regressor_by_size[i]['regressor'].predict(poly_regressor_by_size[i]['features'].fit_transform(X_test))
 
-    print(len(X_test))
-    #for k in range(len(X_test)):
-    #    print(X_test[k], y_pred[k])
-    print('Mean Absolute Error (MAE) for RFR:', metrics.mean_absolute_error(y_test, y_pred), "num warlocks", i)
-    print('Mean Absolute Error (MAE) for polyreg:', metrics.mean_absolute_error(y_test, y_pred_poly), "num warlocks", i)
+    mlp_scaler_by_comp[comp] = preprocessing.StandardScaler().fit(X_train)
+    X_train_mlp = mlp_scaler_by_comp[comp].transform(X_train)
+    mlp_by_comp[comp].fit(X_train_mlp,y_train)
+
+
+
+    y_pred=rfr_by_comp[comp].predict(X_test)
+    y_pred_poly=poly_regressor_by_comp[comp]['regressor'].predict(poly_regressor_by_comp[comp]['features'].fit_transform(X_test))
+    y_pred_mlp=mlp_by_comp[comp].predict(mlp_scaler_by_comp[comp].transform(X_test))
+
+    print('Mean Absolute Error (MAE) for RFR:', metrics.mean_absolute_error(y_test, y_pred), str(comp), "size: ", len(X_train)+len(X_test))
+    print('Mean Absolute Error (MAE) for polyreg:', metrics.mean_absolute_error(y_test, y_pred_poly), str(comp))
+    print('Mean Absolute Error (MAE) for MLP:', metrics.mean_absolute_error(y_test, y_pred_poly), str(comp))
 
 def genCritDataFromNum(i, num_locks, num_priests):
     if num_locks == 1:
@@ -207,19 +393,67 @@ def genCritDataFromNum(i, num_locks, num_priests):
         if num_priests == 0:
             return [95, 1.0, .94, i/100., 1.0, .94, i/100.]
         if num_priests == 1:
-            return [95, 1.0, .94, i/100., 1.0, .94, .25, 0.0, .94, 0.0]
+            return [95, 1.0, .94, i/100., 1.0, .94, i/100., 0.0, .94, 0.0]
+    if num_locks == 3:
+        if num_priests == 0:
+            return [95, 1.0, .94, i/100., 1.0, .94, i/100., 1.0, .94, i/100.]
+        if num_priests == 1:
+            return [95, 1.0, .94, i/100., 1.0, .94, i/100., 1.0, .94, i/100., 0.0, .94, 0.0]
+    if num_locks == 4:
+        if num_priests == 0:
+            return [95, 1.0, .94, i/100., 1.0, .94, i/100., 1.0, .94, i/100., 1.0, .94, i/100.]
+        if num_priests == 1:
+            return [95, 1.0, .94, i/100., 1.0, .94, i/100., 1.0, .94, i/100., 0.0, .94, 0.0]
+
+def genCritDataFromComp(i, comp):
+    if comp == str(composition.W1_0SP):
+        return [95, .94, i/100.]
+    if comp == str(composition.W1_1SP):
+        return [95, .94, i/100., .94]
+    if comp == str(composition.W2_0SP):
+        return [95, .94, i/100., .94, i/100.]
+    if comp == str(composition.W2_1SP):
+        return [95, .94, i/100., .94, i/100., .94]
+    if comp == str(composition.W3_0SP):
+        return [95, .94, i/100., .94, i/100., .94, i/100.]
+    if comp == str(composition.W3_1SP):
+        return [95, .94, i/100., .94, i/100., .94, i/100., .94]
 
 
 # # Data for plotting
 
 import matplotlib.pyplot as plt
-import numpy as np
 
 fig, ax = plt.subplots()
+
+def plotRegComp(comp):
+    P = []
+    Z = []
+    G = []
+    x = []
+    y = []
+    for i in range(50):
+        P.append(genCritDataFromComp(i, comp))
+        Z.append(genCritDataFromComp(i, comp))
+        x.append(i/100.)
+        y.append(1-(1-.95*i/100.)**4)
+
+    if PLOT_SETTINGS['rfr']:
+        s = rfr_by_comp[comp].predict(P)
+        ax.plot(x,s, label="random forest regressor, " + str(comp))
+    if PLOT_SETTINGS['polyreg']:
+        z = poly_regressor_by_comp[comp]['regressor'].predict(poly_regressor_by_comp[comp]['features'].fit_transform(Z))
+        ax.plot(x,z, label="polynomial regressor, " + str(comp))
+    if PLOT_SETTINGS['mlp']:
+        s = mlp_by_comp[comp].predict(mlp_scaler_by_comp[comp].transform(P))
+        ax.plot(x,s, label="MLP, " + str(comp))
+    if PLOT_SETTINGS['binomial_distribution']:
+        ax.plot(x,y, label="binomial distribution, " + str(comp))
 
 def plotReg(num_locks, num_priests):
     P = []
     Z = []
+    G = []
     x = []
     y = []
     for i in range(50):
@@ -228,6 +462,7 @@ def plotReg(num_locks, num_priests):
         x.append(i/100.)
         y.append(1-(1-.95*i/100.)**4)
 
+    #s = rfr_by_size[num_locks+num_priests].predict(P)
     s = rfr_by_size[num_locks+num_priests].predict(P)
 
     z = poly_regressor_by_size[num_locks+num_priests]['regressor'].predict(poly_regressor_by_size[num_locks+num_priests]['features'].fit_transform(Z))
@@ -238,12 +473,17 @@ def plotReg(num_locks, num_priests):
 
 
 
-plotReg(1, 0)
-plotReg(1, 1)
+#plotReg(1, 0)
+#plotReg(2, 0)
+#plotReg(3, 0)
+for comp in PLOT_SETTINGS['comps']:
+    plotRegComp(comp)
+#plotReg(1, 1)
+#plotReg(3, 1)
 #plotReg(2, 0)
 
-for v in range(len(data_by_size[1]['X'])):
-    ax.plot(data_by_size[1]['X'][v][3],data_by_size[1]['Y'][v], '.')
+for v in range(len(data_by_size[3]['X'])):
+    ax.plot(data_by_size[3]['X'][v][3],data_by_size[3]['Y'][v], 'k.', alpha=.25)
 
 ax.legend()
 ax.set_xlim([0,.6])
@@ -256,69 +496,6 @@ plt.grid()
 plt.show()
 exit()
 
-def getTrainingData(boss_id, comp):
-    print("Printing db for boss", boss_id)
-    X = []
-    Y = []
-    avg_hit = 0
-
-    def checkEntry(row, comp):
-        if comp == composition.W1_0SP:
-            if len(loads(row[2])) != 1:
-                return False
-            if len(loads(row[3])) != 0:
-                return False
-        elif comp == composition.W2_0SP:
-            if len(loads(row[2])) != 2:
-                return False
-            if len(loads(row[3])) != 0:
-                return False
-        elif comp == composition.W1_1SP:
-            if len(loads(row[2])) != 1:
-                return False
-            if len(loads(row[3])) != 1:
-                return False
-        else:
-            return False
-        return True
-
-    with con:
-        cursor = con.cursor()
-        cursor.execute("SELECT COUNT(*) FROM USER WHERE boss_id == ? and composition == ?", (boss_id, str(comp)))
-        num = cursor.fetchone()
-        print("There are ", num, "entries")
-        data = con.execute("SELECT * FROM USER WHERE boss_id == ? and composition == ?", (boss_id, str(comp)))
-        #Inject 0 intercept data
-        for k in range(1,9):
-            for g in [0,.33,.66,1.0]:
-                for i in range(0,100,10):
-                    X.append([i])
-                    for j in range(k):
-                        X[-1].append([g,0,0])
-
-        for row in data:
-            if not checkEntry(row,comp):
-                continue
-            # print(row, row[5])
-            # time, warlock 1's hit, warlock 1's crit
-            X.append([row[4]])
-            for i in range(len(loads(row[2]))):
-                X[-1].append(loads(row[2])[i]['hit'])
-                X[-1].append(loads(row[2])[i]['crit'])
-            for i in range(len(loads(row[3]))):
-                X[-1].append(loads(row[3])[i]['hit'])
-            # X.append([row[4], loads(row[2])[0]['hit'], loads(row[2])[0]['crit']])
-            #X.append([loads(row[2])[0]['hit'], loads(row[2])[0]['crit']])
-            avg_hit += loads(row[2])[0]['hit']
-            if row[5] == -1:
-                Y.append(0)
-            else:
-                Y.append(row[5])
-            if row[5] < .1:
-                print(row, len(X), len(Y))
-
-    print(avg_hit/len(Y))
-    return X,Y
 X,Y = getTrainingData(661, COMP)
 
 # Split dataset into training set and test set

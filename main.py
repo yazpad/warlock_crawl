@@ -23,7 +23,7 @@ import json
 
 MAX_DELAY = 5
 
-con = sl.connect('isb.db')
+con = sl.connect('isb_new.db')
 try:
     with con:
         con.execute("""
@@ -35,6 +35,25 @@ try:
                 fight_length INTEGER NOT NULL,
                 isb_ratio REAL NOT NULL,
                 boss_id INTEGER NOT NULL
+            );
+        """)
+except:
+    "db already detected"
+
+try:
+    with con:
+        con.execute("""
+            CREATE TABLE FIRE_vs_SHADOW (
+                raid_html TEXT NOT NULL PRIMARY KEY,
+                composition STRING NOT NULL,
+                warlock_info TEXT,
+                fire_destruction_info TEXT,
+                shadow_priest_info TEXT,
+                fight_length INTEGER NOT NULL,
+                isb_ratio REAL NOT NULL,
+                boss_id INTEGER NOT NULL,
+                has_fire_mage INTEGER NOT NULL,
+                has_shadow_priest INTEGER NOT NULL
             );
         """)
 except:
@@ -52,16 +71,26 @@ def printBossDB(boss_id):
     print("Printing db for boss", boss_id)
     with con:
         cursor = con.cursor()
-        cursor.execute("SELECT COUNT(*) FROM USER WHERE boss_id == ?", (boss_id,))
+        cursor.execute("SELECT COUNT(*) FROM FIRE_vs_SHADOW WHERE boss_id == ?", (boss_id,))
         num = cursor.fetchone()
         print("There are ", num, "entries")
-        data = con.execute("SELECT * FROM USER WHERE boss_id == ?", (boss_id,))
+        data = con.execute("SELECT * FROM FIRE_vs_SHADOW WHERE boss_id == ?", (boss_id,))
         for row in data:
             print(row)
 
 def insertIntoDB(fight_info):
     sql = 'INSERT INTO USER (raid_html, composition, warlock_info, shadow_priest_info, fight_length, isb_ratio, boss_id) values(?, ?, ?, ?, ?, ?, ?)'
     data = [(fight_info['raid_html'], str(fight_info['composition']), json.dumps(fight_info['warlock_info']), json.dumps(fight_info['shadow_priest_info']), fight_info['fight_length'], fight_info['isb_ratio'], fight_info['boss_id'])]
+    with con:
+        try:
+            con.executemany(sql, data)
+        except:
+            print("Attempted to add a fight which exists in DB")
+            pass
+
+    print("Adding data to fire_vs_shadow...")
+    sql = 'INSERT INTO FIRE_vs_SHADOW (raid_html, composition, warlock_info, fire_destruction_info, shadow_priest_info, fight_length, isb_ratio, boss_id, has_fire_mage, has_shadow_priest) values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    data = [(fight_info['raid_html'], str(fight_info['composition']), json.dumps(fight_info['warlock_info']),json.dumps(fight_info['fire_destruction_info']), json.dumps(fight_info['shadow_priest_info']), fight_info['fight_length'], fight_info['isb_ratio'], fight_info['boss_id'], fight_info['has_fire_mage'], fight_info['has_shadow_priest'])]
     with con:
         try:
             con.executemany(sql, data)
@@ -80,8 +109,8 @@ def existsInDB(raid_html):
         return False
     return False
 
-fight_info = {"raid_html": "sample2", "composition": composition.W3_1SP, "warlock_info": {"as": 3}, "shadow_priest_info": {}, "fight_length": 110, "isb_ratio": .25, "boss_id": 111}
-insertIntoDB(fight_info);
+# fight_info = {"raid_html": "sample2", "composition": composition.W3_1SP, "warlock_info": {"as": 3}, "shadow_priest_info": {}, "fight_length": 110, "isb_ratio": .25, "boss_id": 111}
+#insertIntoDB(fight_info);
 
 # data = [("sample_html22", str(composition.W1_1SP), json.dumps([{"a": str(composition.W2_1SP)}]), json.dumps([]), 11, .25, 10101)]
 
@@ -165,7 +194,7 @@ def getComposition(raid_html):
 
         element_value = character_meta.get_attribute('innerHTML')
         element_value_img = character_img.get_attribute('innerHTML')
-        if "Warlock" in element_value or "Priest-Shadow" in element_value_img:
+        if "Warlock" in element_value or "Priest-Shadow" in element_value_img or "Mage-Fire" in element_value_img:
             split_for_source = element_value.split("setFilterSource('")[1].split("'")[0]
             split_for_name = element_value.split('">')[1].splitlines()[0]
             warlock_dict[split_for_name] = split_for_source
@@ -181,6 +210,9 @@ def getComposition(raid_html):
             elif "Warlock-Demonology" in element_value_img:
                 spec[split_for_name] = "demonology"
                 print("Demonology warlock found")
+            elif "Mage-Fire" in element_value_img:
+                spec[split_for_name] = "fire_mage"
+                print("Fire mage found")
             else:
                 spec[split_for_name] = "unknown"
                 print("Unknown spec: ", element_value_img)
@@ -344,9 +376,11 @@ def getPlayerCastData(fight_html, fight_text, warlock_name, warlock_source, play
                     stats["in_isb"]+=1
                 stats["total"]+=1
         except Exception as e:
-            print("Broken exception")
-            print(e)
-            print(traceback.format_exc())
+            print("Broken exception", g)
+            # if "no such element" not in e:
+            #     print(e)
+            #     print(traceback.format_exc())
+            print("!!!")
             break;
 
 
@@ -384,18 +418,31 @@ def getPlayerHitCrit(fight_html, fight_text, warlock_name, warlock_source, playe
 
     crit_index = None
     hit_index = None
-    for h in range(1,10):
+    dps_index = None
+    for h in range(1,12):
         try:
             if "Crit" in fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/thead/tr/th["+str(h)+"]/div").text:
                 crit_index = h
             if "Miss" in fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/thead/tr/th["+str(h)+"]/div").text:
                 hit_index = h
-            if hit_index is not None and crit_index is not None:
+            if "DPS" in fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/thead/tr/th["+str(h)+"]/div").text:
+                dps_index = h
+            if hit_index is not None and crit_index is not None and dps_index is not None:
                 break
         except Exception as e:
             print(e)
             print(player_cast_html)
             print(traceback.format_exc())
+
+    dps = None
+    try:
+        dps = fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/tfoot/tr/td["+str(dps_index)+"]").text
+        dps = dps.replace(',','')
+        dps = float(dps)
+        print("DPS FOUND", dps)
+    except Exception as e:
+        print(e)
+        print("failed to get dps")
     for g in range(1,100):
         try:
             cast_element = fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/tbody/tr["+str(g)+"]/td[1]/table/tbody/tr/td[2]").text
@@ -412,9 +459,9 @@ def getPlayerHitCrit(fight_html, fight_text, warlock_name, warlock_source, playe
                     hit = "0%"
                 if "-" in crit:
                     crit = "0%"
-                total_fight_data["warlock_info"].append({"name": warlock_name, "hit": 1.0 - float(hit[:-1])/100., "crit": float(crit[:-1])/100., "spec": specs[warlock_name]})
+                total_fight_data["warlock_info"].append({"name": warlock_name, "hit": 1.0 - float(hit[:-1])/100., "crit": float(crit[:-1])/100., "spec": specs[warlock_name], "dps": dps})
                 print("sb", warlock_name, hit, crit)
-                return
+                break
             if "Mind Blast" in cast_element:
                 if hit_index is not None:
                     hit = fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/tbody/tr[" + str(g) + "]/td["+str(hit_index)+"]").text
@@ -422,29 +469,33 @@ def getPlayerHitCrit(fight_html, fight_text, warlock_name, warlock_source, playe
                     hit = "0%"
                 if "-" in hit:
                     hit = "0%"
-                total_fight_data["shadow_priest_info"].append({"name": warlock_name, "hit": 1.0 - float(hit[:-1])/100., "spec": specs[warlock_name]})
+                total_fight_data["shadow_priest_info"].append({"name": warlock_name, "hit": 1.0 - float(hit[:-1])/100., "spec": specs[warlock_name], "dps": dps})
                 print(warlock_name, hit)
-                return 
+                break 
             if "Incinerate" in cast_element:
                 casted_incinerate = True
+                total_fight_data["fire_destruction_info"].append({"name": warlock_name, "dps": dps})
 
         except Exception as e:
             if casted_incinerate:
                 print("Warlock", warlock_name, "was a firelock")
-                return
+                break
             print(e)
             print(player_cast_html)
             print(traceback.format_exc())
-            return
+            break
 
 
 def getRaidComposition(raid_html, warlock_sources, specs, boss_id):
     debuff_data={}
     player_data={}
+    success = False
     agg_stats = {"in_isb": 0, "total": 0}
     num_shadow_priests = 0
     num_shadow_warlocks = 0
-    total_fight_data = {"composition": composition.UNKNOWN, "warlock_info": [], "shadow_priest_info": [], "fight_length": -1, "isb_ratio": -1, "raid_html": "Not set", "boss_id": boss_id}
+    num_fire_warlocks = 0
+    total_fight_data = {"composition": composition.UNKNOWN, "warlock_info": [], "shadow_priest_info": [], "fight_length": -1, "isb_ratio": -1, "raid_html": "Not set", "boss_id": boss_id, "has_fire_mage": 0, "has_shadow_priest": 0, "fire_destruction_info": []}
+    # fire_warlock_data_comparison = {"composition": composition.UNKNOWN, "warlock_info": [], "shadow_priest_info": [], "fight_length": -1, "isb_ratio": -1, "raid_html": "Not set", "boss_id": boss_id, "fire_warlock_info": [], "has_fire_mage": -1, "has_shadow_priest": -1}
 
     def determineComp(num_shadow_priests, num_shadow_warlocks):
         if num_shadow_warlocks == 1:
@@ -507,7 +558,6 @@ def getRaidComposition(raid_html, warlock_sources, specs, boss_id):
         fight_driver.get(raid_html)
         try:
             fight_text = fight_driver.find_element_by_xpath('/html/body/div[2]/div[2]/div[5]/div/div/div/div['+str(fight_num)+']/a/span[1]').text
-            print(fight_text)
         except:
             continue
         if fight_text in boss_list:
@@ -517,16 +567,31 @@ def getRaidComposition(raid_html, warlock_sources, specs, boss_id):
             total_fight_data["raid_html"] = fight_html
             getDebuffData(fight_html,fight_text,debuff_data, fight_data, total_fight_data)
             for k,v in warlock_sources.items():
+                print(k, specs[k], "PARSING")
+                if specs[k] == "fire_mage":
+                    total_fight_data['has_fire_mage'] = 1
+                if specs[k] == "shadow":
+                    total_fight_data['has_shadow_priest'] = 1
                 player_data[k][fight_text]={}
-                getPlayerBuffData(fight_html, fight_text, k, v, player_data)
-                class_type, cast_stats = getPlayerCastData(fight_html, fight_text, k, v, player_data, debuff_data[boss_list[0]])
-                getPlayerHitCrit(fight_html, fight_text, k, v, player_data, debuff_data[boss_list[0]], total_fight_data, specs)
-                if class_type == characterClass.SHADOW_PRIEST or class_type == characterClass.SHADOW_WARLOCK:
-                    appendClassStats(agg_stats, cast_stats)
-                    if class_type == characterClass.SHADOW_PRIEST: 
-                        num_shadow_priests += 1
-                    if class_type == characterClass.SHADOW_WARLOCK: 
-                        num_shadow_warlocks += 1
+                if specs[k] != "fire_mage":
+                    getPlayerBuffData(fight_html, fight_text, k, v, player_data)
+                    class_type, cast_stats = getPlayerCastData(fight_html, fight_text, k, v, player_data, debuff_data[boss_list[0]])
+                    getPlayerHitCrit(fight_html, fight_text, k, v, player_data, debuff_data[boss_list[0]], total_fight_data, specs)
+                    if class_type == characterClass.SHADOW_PRIEST or class_type == characterClass.SHADOW_WARLOCK:
+                        appendClassStats(agg_stats, cast_stats)
+                        if class_type == characterClass.SHADOW_PRIEST: 
+                            num_shadow_priests += 1
+                        if class_type == characterClass.SHADOW_WARLOCK: 
+                            num_shadow_warlocks += 1
+                print(k, specs[k], "FINISHED")
+                print()
+            print("Finished parsing log")
+            success = True
+            print("")
+            break
+    else:
+        print("Boss not found in this log")
+
 
 
     comp = determineComp(num_shadow_priests, num_shadow_warlocks)
@@ -538,7 +603,8 @@ def getRaidComposition(raid_html, warlock_sources, specs, boss_id):
     if agg_stats['total'] > 0:
         total_fight_data['isb_ratio'] = agg_stats['in_isb']/agg_stats['total']
     print("Fight info", total_fight_data)
-    if total_fight_data["composition"] is not composition.UNKNOWN:
+    if success:
+        print("ADDING")
         insertIntoDB(total_fight_data)
     return debuff_data
     
@@ -553,7 +619,7 @@ def sweepRaids(raid_id, server_id, boss_id, num_pages = 10):
         html = "https://classic.warcraftlogs.com/zone/reports?zone="+str(raid_id)+"&boss="+str(boss_id)+"&difficulty=0&class=Any&spec=Any&keystone=0&kills=2&duration=0"
         page_num = random.randint(1,4)
         for i in range(num_pages):
-            html = "https://classic.warcraftlogs.com/zone/reports?zone="+str(raid_id)+"&boss="+str(boss_id)+"&difficulty=0&class=Any&spec=Any&keystone=0&kills=2&duration=0&page="+str(random.randint(1,5))+"&server="+str(server_id)
+            html = "https://classic.warcraftlogs.com/zone/reports?zone="+str(raid_id)+"&boss="+str(boss_id)+"&difficulty=0&class=Any&spec=Any&keystone=0&kills=2&duration=0&page="+str(i)+"&server="+str(server_id)
             print("Sweeping raid", html)
             sweep_raid_driver.get(html)
             sweep_raid_driver.execute_script("return document.documentElement.innerHTML;")
@@ -589,8 +655,8 @@ def sweepRaids(raid_id, server_id, boss_id, num_pages = 10):
 
         # next_fun(html)
     # html_start = "https://classic.warcraftlogs.com/zone/rankings/1005#metric=execution&boss=715&region=6&subregion=13&page=2"
-server_dict = {"whitemane": 5012, "faerlina": 5003, "thunderfury": 5067}
+server_dict = {"whitemane": 5012, "faerlina": 5003, "thunderfury": 5067, "benediction": 5068, "herod": 5006, "arugal": 5001, "sulfuras": 5060}
 boss_dict = {"Maiden of Virtue Normal": 654, "Prince Malchezaar Normal": 661, "Gruul the Dragonkiller Normal": 650}
-sweepRaids(1008, server_dict["whitemane"], boss_dict["Gruul the Dragonkiller Normal"])
+sweepRaids(1008, server_dict["herod"], boss_dict["Gruul the Dragonkiller Normal"])
 
 cleanExit()
