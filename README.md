@@ -2,6 +2,7 @@
 Gather warlock data on wclogs using python3 and selenium
 
 ## Requirements
+
 prettytable==2.1.0
 icecream==2.1.1
 colorama==0.4.3
