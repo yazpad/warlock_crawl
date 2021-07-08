@@ -2,6 +2,7 @@ from selenium.webdriver.common.by import By
 import traceback
 from enums import composition, characterClass
 from colorama import Fore, Style
+from ids import boss_raid_id, debuff_dict
 
 
 
@@ -23,6 +24,9 @@ from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
 import sqlite3 as sl
 import json
+from config import study_options, display_options
+from prettytable import PrettyTable
+
 
 def waitForElement(driver_name, full_xpath):
     try:
@@ -31,25 +35,44 @@ def waitForElement(driver_name, full_xpath):
         print("Loading took too much time", full_xpath)
         return
 
-def printBossDB(con, boss_id, study_options):
-    print("Printing db for boss", boss_id)
+def printDBSize(con, boss_id=None):
+    if display_options['show_db_size']:
+        with con:
+            cursor = con.cursor()
+            if boss_id == None:
+                cursor.execute("SELECT COUNT(*) FROM " + study_options['name'])
+            else:
+                cursor.execute("SELECT COUNT(*) FROM " + study_options['name'] + " WHERE boss_id == ?", (boss_id,))
+            print("DB size: ", cursor.fetchone()[0])
+
+def getDBHeaders(con):
     with con:
         cursor = con.cursor()
-        cursor.execute("SELECT COUNT(*) FROM " + study_options['name'] + " WHERE boss_id == ?", (boss_id,))
-        num = cursor.fetchone()
-        print("There are ", num, "entries")
-        data = con.execute("SELECT * FROM " + study_options['name'] + " WHERE boss_id == ?", (boss_id,))
-        for row in data:
-            print(row)
+        cursor = con.execute('select * from ' + study_options['name'])
+        return list(map(lambda x: x[0], cursor.description))
+
+def printBossDB(con, boss_id):
+    if display_options['show_db']:
+        print("Printing db for boss", boss_id)
+        with con:
+            data = con.execute("SELECT * FROM " + study_options['name'] + " WHERE boss_id == ?", (boss_id,))
+            #t = PrettyTable(getDBHeaders(con))
+            for row in data:
+                print(row)
+                #ic(row)
+                #t.add_row(row)
+            #print(t)
 
 def printWrapper(function):
     def new_function(*args):
-        print("\n" + Fore.GREEN + "Started: ", function.__name__ + Style.RESET_ALL)
+        if display_options['debug']: 
+            print("\n" + Fore.GREEN + "Started: ", function.__name__ + Style.RESET_ALL)
         try:
             output = function(*args)
         except Exception as e:
             ic(e)
-        print(Fore.GREEN + "Finished: ", function.__name__ + "\n" + Style.RESET_ALL)
+        if display_options['debug']: 
+            print(Fore.GREEN + "Finished: ", function.__name__ + "\n" + Style.RESET_ALL)
         return output
     return new_function
 
@@ -114,28 +137,42 @@ def getTime(element):
     time_val = minutes*60+seconds
     return time_val
 
-def insertIntoDB(con, fight_info, study_options):
+def insertIntoDB(con, fight_info, study_options, record_key):
     try:
-        sql = 'INSERT INTO ' + study_options['name'] + ' (raid_html, composition, player_info, fight_length, isb_ratio, boss_id) values(?, ?, ?, ?, ?, ?)'
-        data = [(fight_info['raid_html'], str(fight_info['composition']), json.dumps(fight_info['player_info']), fight_info['fight_length'], fight_info['isb_ratio'], fight_info['boss_id'])]
-        with con:
-            try:
-                con.executemany(sql, data)
-            except:
-                print("Attempted to add a fight which exists in DB")
-                pass
+        sql = 'INSERT INTO ' + study_options['name'] + ' ('
+        for i in range(len(record_key)):
+            sql += record_key[i]
+            if i < len(record_key) - 1:
+                sql += ', '
+        sql += ') values('
+
+        for i in range(len(record_key)):
+            sql += '?'
+            if i < len(record_key) - 1:
+                sql += ', '
+
+        sql += ')'
+    except Exception as e: 
+        ic(e)
+
+    try:
+        data = []
+        for item in record_key:
+            if item == 'composition':
+                data.append(str(fight_info[item]))
+            elif item == 'player_info':
+                data.append(json.dumps((fight_info[item])))
+            else:
+                data.append(fight_info[item])
+        data = [tuple(data)]
     except Exception as e:
         ic(e)
 
-    # print("Adding data to fire_vs_shadow...")
-    # sql = 'INSERT INTO FIRE_vs_SHADOW (raid_html, composition, warlock_info, fire_destruction_info, shadow_priest_info, fight_length, isb_ratio, boss_id, has_fire_mage, has_shadow_priest) values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-    # data = [(fight_info['raid_html'], str(fight_info['composition']), json.dumps(fight_info['warlock_info']),json.dumps(fight_info['fire_destruction_info']), json.dumps(fight_info['shadow_priest_info']), fight_info['fight_length'], fight_info['isb_ratio'], fight_info['boss_id'], fight_info['has_fire_mage'], fight_info['has_shadow_priest'])]
-    # with con:
-    #     try:
-    #         con.executemany(sql, data)
-    #     except:
-    #         print("Attempted to add a fight which exists in DB")
-    #         pass
+    with con:
+        try:
+            con.executemany(sql, data)
+        except Exception as e:
+            ic(e)
 
 def existsInDB(con, raid_html, study_options):
     with con:
@@ -147,3 +184,39 @@ def existsInDB(con, raid_html, study_options):
             return True
         return False
     return False
+
+def generateStudySQLSchema():
+    schema = " \
+        CREATE TABLE " + study_options['name'] + " ( \
+            raid_html TEXT NOT NULL PRIMARY KEY,"
+    record_list = ["raid_html"]
+
+    if study_options['fight gather options']['isb composition']:
+        schema += "composition STRING NOT NULL,"
+        record_list.append("composition")
+    if study_options['fight gather options']['fight time']:
+        schema += "fight_length INTEGER NOT NULL,"
+        record_list.append("fight_length")
+    if study_options['fight gather options']['isb uptime']:
+        schema += "isb_ratio REAL NOT NULL,"
+        record_list.append("isb_ratio")
+    if study_options['fight gather options']['improved scorch indicator']:
+        schema += "imp_scorch INTEGER NOT NULL,"
+        record_list.append("imp_scorch")
+    if study_options['fight gather options']['shadow vulnerability indicator']:
+        schema += "shadow_vuln INTEGER NOT NULL,"
+        record_list.append("shadow_vuln")
+
+    schema += "boss_id INTEGER NOT NULL,"
+    record_list.append("boss_id")
+
+    schema += "player_info TEXT);"
+    record_list.append("player_info")
+
+    return schema, record_list
+    
+def getRaidID():
+    if boss_raid_id.get(study_options['boss']) is not None:
+        return boss_raid_id[study_options['boss']]
+    else:
+        print("Raid ID not found from boss list...")

@@ -1,11 +1,11 @@
 from selenium.webdriver.common.by import By
 import traceback
 from enums import composition, characterClass
-from util import printBossDB, printWrapper, determineComp, cleanExit, getTime, insertIntoDB, existsInDB
+from util import printBossDB, printWrapper, determineComp, cleanExit, getTime, insertIntoDB, existsInDB, generateStudySQLSchema, getRaidID, printDBSize
 from scraper_functions import getDebuffData, getComposition, getPlayerBuffData, getPlayerCastData, getPlayerHitCrit
 from ids import server_dict, boss_dict, debuff_list, buff_dict
 
-
+from icecream import ic
 from selenium.webdriver.support import expected_conditions as EC
 
 from selenium.common.exceptions import TimeoutException
@@ -22,53 +22,24 @@ from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
 import sqlite3 as sl
 import json
+from config import study_options, display_options
 
-MAX_DELAY = 5
-
-study_options = {
-        "name": "default_name",
-        "boss": "Gruul the Dragonkiller Normal",
-        "sample distribution": "MRU",
-        "number of results": float("inf"),
-        "gather options": {
-            "improved scorch indicator": True,
-            "shadow vulnerability indicator": True,
-            "fight time": True,
-            "dps": True,
-            }
-        }
-
-sl_db_definition = " \
-    CREATE TABLE " + study_options['name'] + " ( \
-        raid_html TEXT NOT NULL PRIMARY KEY, \
-        composition STRING NOT NULL, \
-        player_info TEXT, \
-        fight_length INTEGER NOT NULL, \
-        isb_ratio REAL NOT NULL, \
-        boss_id INTEGER NOT NULL \
-    ); "
-    
-
+raid_id = getRaidID()
+schema, record_key = generateStudySQLSchema()
 con = sl.connect(study_options['name'] + '.db')
-
 try:
     with con:
-        con.execute(sl_db_definition)
+        con.execute(schema)
 except Exception as e:
-    print(e)
+    ic(e)
 
 cursor = con.cursor()
 cursor = con.execute('select * from ' + study_options['name'])
 output_columns = list(map(lambda x: x[0], cursor.description))
 print("Output columns will be: ", output_columns)
 
-
 PAGE_DELAY = 2
-
-#boss_list = ["Maiden of Virtue Normal"]
-#boss_list = ["Prince Malchezaar Normal"]
-boss_list = ["Gruul the Dragonkiller Normal"]
-
+MAX_DELAY = 5
 TIME_BETWEEN_LOAD = 3
 
 chrome_options = Options()
@@ -85,7 +56,7 @@ def getRaidComposition(raid_html, warlock_sources, specs, boss_id):
     num_shadow_priests = 0
     num_shadow_warlocks = 0
     num_fire_warlocks = 0
-    total_fight_data = {"composition": composition.UNKNOWN, "player_info": [], "fight_length": -1, "isb_ratio": -1, "raid_html": "Not set", "boss_id": boss_id, "has_fire_mage": 0, "has_shadow_priest": 0}
+    total_fight_data = {"composition": composition.UNKNOWN, "player_info": [], "fight_length": -1, "isb_ratio": 0, "raid_html": "Not set", "boss_id": boss_id, "imp_scorch": 0, "shadow_vuln": 0} #Todo dynamically create this
 
 
     def appendClassStats(agg_stats, stats):
@@ -103,63 +74,84 @@ def getRaidComposition(raid_html, warlock_sources, specs, boss_id):
             fight_text = fight_driver.find_element_by_xpath('/html/body/div[2]/div[2]/div[5]/div/div/div/div['+str(fight_num)+']/a/span[1]').text
         except:
             continue
-        if fight_text in boss_list:
+        if fight_text == study_options['boss']:
+            print(fight_text)
             ahref = fight_driver.find_element_by_xpath('/html/body/div[2]/div[2]/div[5]/div/div/div/div['+str(fight_num)+']/a')
             ahref.click()
             fight_html = ahref.get_attribute("href")
             total_fight_data["raid_html"] = fight_html
             getDebuffData(fight_driver, fight_html,fight_text,debuff_data, fight_data, total_fight_data)
             for k,v in warlock_sources.items():
-                print(k, specs[k], "PARSING")
-                if specs[k] == "fire_mage":
-                    total_fight_data['has_fire_mage'] = 1
-                if specs[k] == "shadow":
-                    total_fight_data['has_shadow_priest'] = 1
-                player_data[k][fight_text]={}
-                if specs[k] != "fire_mage":
+                if "mage" in specs[k]:
+                    continue
+                if "priest" in specs[k] and "priest" not in study_options['classes to record']:
+                    continue
+                if "warlock" in specs[k] and "warlock" not in study_options['classes to record']:
+                    continue
+                try:
+                    if study_options['fight gather options']['improved scorch indicator']:
+                        if debuff_data[fight_text].get("imp_scorch") is not None:
+                            total_fight_data['imp_scorch'] = 1
+                    if study_options['fight gather options']['shadow vulnerability indicator']:
+                        if debuff_data[fight_text].get("shadow_vuln") is not None:
+                            total_fight_data['shadow_vuln'] = 1
+
+                    player_data[k][fight_text]={}
                     getPlayerBuffData(fight_driver, fight_html, fight_text, k, v, player_data)
-                    class_type, cast_stats = getPlayerCastData(fight_driver, fight_html, fight_text, k, v, player_data, debuff_data[boss_list[0]])
-                    getPlayerHitCrit(fight_driver, fight_html, fight_text, k, v, player_data, debuff_data[boss_list[0]], total_fight_data, specs)
-                    if class_type == characterClass.SHADOW_PRIEST or class_type == characterClass.SHADOW_WARLOCK:
-                        appendClassStats(agg_stats, cast_stats)
-                        if class_type == characterClass.SHADOW_PRIEST: 
-                            num_shadow_priests += 1
-                        if class_type == characterClass.SHADOW_WARLOCK: 
-                            num_shadow_warlocks += 1
-                print(k, specs[k], "FINISHED")
-                print()
+
+                    # \Todo move reqs inside functions
+                    if study_options['player gather options']['hit'] or study_options['player gather options']['dps'] or study_options['player gather options']['crit']:
+                        getPlayerHitCrit(fight_driver, fight_html, fight_text, k, v, player_data, total_fight_data, specs)
+
+                    if study_options['fight gather options']['isb uptime']:
+                        class_type, cast_stats = getPlayerCastData(fight_driver, fight_html, fight_text, k, v, player_data, debuff_data[fight_text])
+                        if class_type == characterClass.SHADOW_PRIEST or class_type == characterClass.SHADOW_WARLOCK:
+                            appendClassStats(agg_stats, cast_stats)
+                            if class_type == characterClass.SHADOW_PRIEST: 
+                                num_shadow_priests += 1
+                            if class_type == characterClass.SHADOW_WARLOCK: 
+                                num_shadow_warlocks += 1
+                except Exception as e:
+                    ic(e)
             print("Finished parsing log")
             success = True
-            print("")
             break
     else:
-        print("Boss not found in this log")
+        print("Boss not found in this log", fight_text, study_options['boss'],raid_html)
 
 
 
-    comp = determineComp(num_shadow_priests, num_shadow_warlocks)
-    print("Composition determined: ", comp)
-    total_fight_data['composition'] = comp
-    if agg_stats['total'] > 0:
-        total_fight_data['isb_ratio'] = agg_stats['in_isb']/agg_stats['total']
-    print("Fight info", total_fight_data)
-    if success:
-        print("ADDING")
-        insertIntoDB(con, total_fight_data, study_options)
+    try:
+        # Todo, change this to ISB comp
+        if study_options['fight gather options']["isb composition"]:
+            comp = determineComp(num_shadow_priests, num_shadow_warlocks)
+            print("Composition determined: ", comp)
+            total_fight_data['composition'] = comp
+
+        if study_options['fight gather options']['isb uptime']:
+            if agg_stats['total'] > 0:
+                total_fight_data['isb_ratio'] = agg_stats['in_isb']/agg_stats['total']
+
+        if success: #Todo add check function against config
+            if display_options['debug']:
+                print("Data to be added...", total_fight_data)
+            insertIntoDB(con, total_fight_data, study_options, record_key)
+        elif display_options['debug']:
+            print("Failure to parse...", total_fight_data)
+    except Exception as e:
+        ic(e)
     return debuff_data
     
-
 
 def sweepRaid(raid_html, boss_id):
     comp, spec = getComposition(fight_driver, raid_html)
     getRaidComposition(raid_html, comp, spec, boss_id)
 
-def sweepRaids(raid_id, server_id, boss_id, num_pages = 10):
+def sweepRaids(raid_id, server_id, boss_id, num_pages = 100):
     try:
-        html = "https://classic.warcraftlogs.com/zone/reports?zone="+str(raid_id)+"&boss="+str(boss_id)+"&difficulty=0&class=Any&spec=Any&keystone=0&kills=2&duration=0"
-        page_num = random.randint(1,4)
+        html = "https://classic.warcraftlogs.com/zone/reports?zone="+str(raid_id)+"&boss="+str(boss_dict[boss_id])+"&difficulty=0&class=Any&spec=Any&keystone=0&kills=2&duration=0"
         for i in range(num_pages):
-            html = "https://classic.warcraftlogs.com/zone/reports?zone="+str(raid_id)+"&boss="+str(boss_id)+"&difficulty=0&class=Any&spec=Any&keystone=0&kills=2&duration=0&page="+str(i)+"&server="+str(server_id)
+            html = "https://classic.warcraftlogs.com/zone/reports?zone="+str(raid_id)+"&boss="+str(boss_dict[boss_id])+"&difficulty=0&class=Any&spec=Any&keystone=0&kills=2&duration=0&page="+str(i)+"&server="+str(server_id)
             print("Sweeping raid", html)
             sweep_raid_driver.get(html)
             sweep_raid_driver.execute_script("return document.documentElement.innerHTML;")
@@ -170,7 +162,6 @@ def sweepRaids(raid_id, server_id, boss_id, num_pages = 10):
                 except:
                     print("Failed to find element by xpath. 1")
                     cleanExit(sweep_raid_driver, fight_driver)
-                # raid_html = "https://classic.warcraftlogs.com/reports/h7knjxRfvMwcTzda"
                 raid_html = ahref.get_attribute("href")
                 if existsInDB(con, raid_html, study_options):
                     continue
@@ -179,14 +170,15 @@ def sweepRaids(raid_id, server_id, boss_id, num_pages = 10):
                 except:
                     time.sleep(10)
                     continue
-                printBossDB(con, boss_id, study_options)
+                printDBSize(con)
+                printBossDB(con, boss_id)
                 time.sleep(5)
     except Exception as e:
-        print(e)
+        ic(e)
         print(traceback.format_exc())
         print("Failed to sweep raid.")
         cleanExit(sweep_raid_driver, fight_driver)
 
-sweepRaids(1008, server_dict["herod"], boss_dict["Gruul the Dragonkiller Normal"])
+sweepRaids(raid_id, study_options['server'], study_options['boss']) #\Todo enabel multiple search.  Normal search doesn't work very well anyways
 
 cleanExit(sweep_raid_driver, fight_driver)

@@ -1,7 +1,7 @@
 from selenium.webdriver.common.by import By
 import traceback
 from enums import composition, characterClass
-from ids import server_dict, boss_dict, debuff_list, buff_dict
+from ids import server_dict, boss_dict, buff_dict, debuff_dict
 
 
 from selenium.webdriver.support import expected_conditions as EC
@@ -25,6 +25,7 @@ import json
 from icecream import ic
 ic.configureOutput(includeContext=True)
 from util import printWrapper
+from config import study_options, display_options
 
 MAX_DELAY = 5
 PAGE_DELAY = 2
@@ -72,7 +73,8 @@ def getComposition(fight_driver, raid_html):
                 spec[split_for_name] = "unknown"
 
 
-    ic(player_dict, spec)
+    if display_options['debug']:
+        ic(player_dict, spec)
     if num_found == 0:
         print("Failed to find any players")
         return getComposition(raid_html), None
@@ -85,8 +87,8 @@ def getDebuffData(fight_driver, fight_html, fight_text, debuff_data, fight_data,
     debuff_data[fight_text]["debuff_set"]=set()
     debuff_html = fight_html + "&type=auras&spells=debuffs&hostility=1"
     fight_driver.get(debuff_html)
-    isb_found = False
-    ic(debuff_html)
+    if display_options['debug']:
+        ic(debuff_html)
 
     fight_time = fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[3]/div/div[1]/div[1]/div/div[2]/span/span[1]").text[1:-1]
     fight_time = int(fight_time[:-3])*60+ int(fight_time[-2:])
@@ -110,12 +112,8 @@ def getDebuffData(fight_driver, fight_html, fight_text, debuff_data, fight_data,
             break
 
         element_value = debuff_meta.get_attribute('id')
-        if element_value == "ability-17800-0":
-            print("ISB FOUND")
-            isb_found = True
-
-        if element_value in debuff_list:
-            debuff_data[fight_text][element_value] = []
+        if element_value in debuff_dict.keys():
+            debuff_data[fight_text][debuff_dict[element_value]] = []
             bar_num = 0
             while True:
                 bar_num += 1
@@ -123,7 +121,7 @@ def getDebuffData(fight_driver, fight_html, fight_text, debuff_data, fight_data,
                     bar_value = fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div/div[1]/table/tbody/tr["+str(k)+"]/td[3]/div[2]/div["+str(bar_num)+"]").get_attribute("style")
                     left = bar_value.split("left:")[1].split("%;")[0]
                     width = bar_value.split("width:")[1].split("%;")[0]
-                    debuff_data[fight_text][element_value].append((float(left)/100.0*fight_time, (float(left)+float(width))/100.0*fight_time))
+                    debuff_data[fight_text][debuff_dict[element_value]].append((float(left)/100.0*fight_time, (float(left)+float(width))/100.0*fight_time))
                 except Exception as e:
                     if type(e) != NoSuchElementException:
                         ic(e)
@@ -143,13 +141,12 @@ def getPlayerBuffData(fight_driver, fight_html, fight_text, warlock_name, warloc
     except TimeoutException:
         print("Loading took too much time")
         return
-    for g in range(1,5):
+    for g in range(1,10):
         try:
             buff_meta_name = fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div/div["+str(g)+"]/div[1]")
         except:
             break
         if buff_meta_name.text == "Damage Buffs":
-            print("FOUND DMG BUFFS")
             k = 0
             while True:
                 k += 1
@@ -160,7 +157,6 @@ def getPlayerBuffData(fight_driver, fight_html, fight_text, warlock_name, warloc
                     break
 
                 element_value = buff_meta.get_attribute('id')
-                print(element_value)
                 if element_value in list(buff_dict.keys()):
                     print(element_value, buff_dict[element_value])
                     player_data[warlock_name][fight_text]["buffs"][element_value] = []
@@ -181,7 +177,7 @@ def getPlayerBuffData(fight_driver, fight_html, fight_text, warlock_name, warloc
 @printWrapper
 def getPlayerCastData(fight_driver, fight_html, fight_text, warlock_name, warlock_source, player_data, debuff_data):
     def duringISB(cast_time):
-        for bounds in debuff_data["ability-17800-0"]:
+        for bounds in debuff_data["isb"]:
             if cast_time > float(bounds[0]) and cast_time < float(bounds[1]):
                 return True
         return False
@@ -195,7 +191,6 @@ def getPlayerCastData(fight_driver, fight_html, fight_text, warlock_name, warloc
         return int(cast_time[-8:-6])*60+ float(cast_time[-5:])
 
     player_cast_html = fight_html + "&type=casts&source="+str(warlock_source)+"&view=events"
-    print("Starting to gather player cast data: ", warlock_name, player_cast_html)
     try:
         time.sleep(PAGE_DELAY)
         fight_driver.get(player_cast_html)
@@ -243,29 +238,33 @@ def getPlayerCastData(fight_driver, fight_html, fight_text, warlock_name, warloc
 
 
     if stats["total"] > 0:
-        print("ISB ratio: ", stats["in_isb"]/stats["total"])
+        if display_options['debug']:
+            print("ISB ratio: ", stats["in_isb"]/stats["total"])
     if casted_shadowbolt:
-        print("Completed for shadow warlock", warlock_name)
+        if display_options['debug']:
+            print("Completed for shadow warlock", warlock_name)
         return characterClass.SHADOW_WARLOCK, stats
     elif casted_incinerate:
-        print("Completed for fire warlock", warlock_name)
+        if display_options['debug']:
+            print("Completed for fire warlock", warlock_name)
         return characterClass.FIRE_WARLOCK, stats
     elif casted_mindblast:
-        print("Completed for shadowpriest", warlock_name)
+        if display_options['debug']:
+            print("Completed for shadowpriest", warlock_name)
         return characterClass.SHADOW_PRIEST, stats
     else:
-        print("Completed for unknown class", warlock_name)
+        if display_options['debug']:
+            print("Completed for unknown class", warlock_name)
     return characterClass.UNKNOWN, stats
 
 @printWrapper
-def getPlayerHitCrit(fight_driver, fight_html, fight_text, warlock_name, warlock_source, player_data, debuff_data, total_fight_data, specs):
+def getPlayerHitCrit(fight_driver, fight_html, fight_text, warlock_name, warlock_source, player_data, total_fight_data, specs):
 
     casted_shadowbolt = False
     casted_incinerate = False
     casted_mindblast = False
     stats = {"in_isb": 0, "total": 0}
 
-    print("Starting to gather player crit/hit data: ", warlock_name)
     time.sleep(PAGE_DELAY)
     player_cast_html = fight_html + "&type=damage-done&source="+str(warlock_source)
     fight_driver.get(player_cast_html)
@@ -289,16 +288,16 @@ def getPlayerHitCrit(fight_driver, fight_html, fight_text, warlock_name, warlock
             if hit_index is not None and crit_index is not None and dps_index is not None:
                 break
         except Exception as e:
-            print(e)
-            print(player_cast_html)
-            print(traceback.format_exc())
+            if type(e) != NoSuchElementException:
+                ic(e)
+                print(player_cast_html)
+                print(traceback.format_exc())
 
     dps = None
     try:
         dps = fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/tfoot/tr/td["+str(dps_index)+"]").text
         dps = dps.replace(',','')
         dps = float(dps)
-        print("DPS FOUND", dps)
     except Exception as e:
         print(e)
         print("failed to get dps")
@@ -318,8 +317,10 @@ def getPlayerHitCrit(fight_driver, fight_html, fight_text, warlock_name, warlock
                     hit = "0%"
                 if "-" in crit:
                     crit = "0%"
-                total_fight_data["player_info"].append({"name": warlock_name, "hit": 1.0 - float(hit[:-1])/100., "crit": float(crit[:-1])/100., "spec": specs[warlock_name], "dps": dps})
-                print("sb", warlock_name, hit, crit)
+                if specs[warlock_name] == "destruction":
+                    total_fight_data["player_info"].append({"name": warlock_name, "hit": 1.0 - float(hit[:-1])/100., "crit": float(crit[:-1])/100., "spec": "shadow destro", "dps": dps})
+                else:
+                    total_fight_data["player_info"].append({"name": warlock_name, "hit": 1.0 - float(hit[:-1])/100., "crit": float(crit[:-1])/100., "spec": specs[warlock_name], "dps": dps})
                 break
             if "Mind Blast" in cast_element:
                 if hit_index is not None:
@@ -329,7 +330,6 @@ def getPlayerHitCrit(fight_driver, fight_html, fight_text, warlock_name, warlock
                 if "-" in hit:
                     hit = "0%"
                 total_fight_data["player_info"].append({"name": warlock_name, "hit": 1.0 - float(hit[:-1])/100., "spec": "shadow priest", "dps": dps})
-                print(warlock_name, hit)
                 break 
             if "Incinerate" in cast_element:
                 casted_incinerate = True
@@ -337,7 +337,6 @@ def getPlayerHitCrit(fight_driver, fight_html, fight_text, warlock_name, warlock
 
         except Exception as e:
             if casted_incinerate:
-                print("Warlock", warlock_name, "was a firelock")
                 break
             print(e)
             print(player_cast_html)
