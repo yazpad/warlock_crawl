@@ -1,7 +1,7 @@
 # warlock_crawl
 Gather warlock data on wclogs using python3 and selenium.
 
-e.g. results: https://docs.google.com/spreadsheets/d/1eddYWdusO0IWOEWGogHrkeZ0IXYlRBI4pBv39HNu-0k/edit?usp=sharing
+e.g. results: [Warlock spec comparison at Gruul](https://docs.google.com/spreadsheets/d/1eddYWdusO0IWOEWGogHrkeZ0IXYlRBI4pBv39HNu-0k/edit?usp=sharing)
 
 ## Requirements
 
