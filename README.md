@@ -35,3 +35,22 @@ In config.py you can modify options regarding what is recorded when gathering da
 `python3 write_to_csv.py`
 
 This will write the db specified in config.py to a .csv file.  This csv file can be imported to google sheets using the custom delimiter, "|". (vertical bar/pipe)
+
+## Todo
+
+The following player gather options
+* Calculated spell power
+* Calculated int
+* Gear
+* Buffs
+* Consumes
+* Uses immolate
+* Deaths
+* Resists
+* Damage taken
+* Damage statistics per spell
+
+The following fight gather options
+* Sample wclogs by Fastest per boss
+* Multiple bosses at a time
+* Sample by complete raid
