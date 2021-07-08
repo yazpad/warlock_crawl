@@ -34,9 +34,14 @@
 #   hit: [bool] Set to true if you want the player's hit rate to be recorded (observed hit rate)
 #   dps: [bool] Set to true if you want the player's crit rate to be recorded (observed crit rate)
 
+output_options = {
+            "num_players" : 10, # This number should be larger than what you expect per raid.  This helps export to gsheets
+            "player_info_output_keys" : ['name', 'spec', 'dps'],
+        }
+
 display_options = {
             "ic": False,
-            "show_db": False, # Warning, this might be ugly in terminal
+            "show_db": True, # Warning, this might be ugly in terminal
             "debug": False,
             "show_db_size": True,
         }
@@ -53,6 +58,7 @@ study_options = {
             "fight time": True,
             "isb uptime": False,
             "isb composition": False,
+            "record server": True,
             },
         "classes to record": ["warlock", "priest"], #Currently only supports these two
         "player gather options": {

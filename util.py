@@ -206,6 +206,9 @@ def generateStudySQLSchema():
     if study_options['fight gather options']['shadow vulnerability indicator']:
         schema += "shadow_vuln INTEGER NOT NULL,"
         record_list.append("shadow_vuln")
+    if study_options['fight gather options']['record server']:
+        schema += "server REAL NOT NULL,"
+        record_list.append("server")
 
     schema += "boss_id INTEGER NOT NULL,"
     record_list.append("boss_id")

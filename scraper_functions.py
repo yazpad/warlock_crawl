@@ -131,10 +131,10 @@ def getDebuffData(fight_driver, fight_html, fight_text, debuff_data, fight_data,
 
 @printWrapper
 def getPlayerBuffData(fight_driver, fight_html, fight_text, warlock_name, warlock_source, player_data):
+    ## TODO player buffs not supported yet, this needs a pass before available
     time.sleep(PAGE_DELAY)
     player_data[warlock_name][fight_text]["buffs"] = {}
     player_buff_html = fight_html + "&type=auras&source="+str(warlock_source)
-    print(player_buff_html)
     fight_driver.get(player_buff_html)
     try:
         WebDriverWait(fight_driver, MAX_DELAY).until(EC.presence_of_element_located((By.XPATH, "/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div/div[1]/div[1]")))
@@ -257,6 +257,8 @@ def getPlayerCastData(fight_driver, fight_html, fight_text, warlock_name, warloc
             print("Completed for unknown class", warlock_name)
     return characterClass.UNKNOWN, stats
 
+# Requires: None
+# Required for: Spec determination
 @printWrapper
 def getPlayerHitCrit(fight_driver, fight_html, fight_text, warlock_name, warlock_source, player_data, total_fight_data, specs):
 
@@ -277,21 +279,21 @@ def getPlayerHitCrit(fight_driver, fight_html, fight_text, warlock_name, warlock
     crit_index = None
     hit_index = None
     dps_index = None
-    for h in range(1,12):
-        try:
-            if "Crit" in fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/thead/tr/th["+str(h)+"]/div").text:
-                crit_index = h
-            if "Miss" in fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/thead/tr/th["+str(h)+"]/div").text:
-                hit_index = h
-            if "DPS" in fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/thead/tr/th["+str(h)+"]/div").text:
-                dps_index = h
-            if hit_index is not None and crit_index is not None and dps_index is not None:
-                break
-        except Exception as e:
-            if type(e) != NoSuchElementException:
-                ic(e)
-                print(player_cast_html)
-                print(traceback.format_exc())
+
+    try:
+        WebDriverWait(fight_driver, MAX_DELAY).until(EC.presence_of_element_located((By.XPATH, "/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/thead/tr/th")))
+        cols = fight_driver.find_elements_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/thead/tr/th")
+        for i in range(len(cols)):
+            if "Crit" in cols[i].text:
+                crit_index = i+1
+            if "Miss" in cols[i].text:
+                hit_index = i+1
+            if "DPS" in cols[i].text:
+                dps_index = i+1
+    except Exception as e:
+        ic(e)
+        print(player_cast_html)
+        print(traceback.format_exc())
 
     dps = None
     try:
@@ -318,22 +320,89 @@ def getPlayerHitCrit(fight_driver, fight_html, fight_text, warlock_name, warlock
                 if "-" in crit:
                     crit = "0%"
                 if specs[warlock_name] == "destruction":
-                    total_fight_data["player_info"].append({"name": warlock_name, "hit": 1.0 - float(hit[:-1])/100., "crit": float(crit[:-1])/100., "spec": "shadow destro", "dps": dps})
+                    total_fight_data["player_info"].append({"name": warlock_name})
+
+                    if study_options['player gather options']['hit']:
+                        total_fight_data["player_info"][-1]["hit"] = 1.0 - float(hit[:-1])/100.
+
+                    if study_options['player gather options']['crit']:
+                        total_fight_data["player_info"][-1]["crit"] = float(crit[:-1])/100.
+
+                    if study_options['player gather options']['dps']:
+                        total_fight_data["player_info"][-1]["dps"] = dps
+
+                    total_fight_data["player_info"][-1]["spec"] = "shadow destro" 
                 else:
-                    total_fight_data["player_info"].append({"name": warlock_name, "hit": 1.0 - float(hit[:-1])/100., "crit": float(crit[:-1])/100., "spec": specs[warlock_name], "dps": dps})
+                    total_fight_data["player_info"].append({"name": warlock_name})
+
+                    if study_options['player gather options']['hit']:
+                        total_fight_data["player_info"][-1]["hit"] = 1.0 - float(hit[:-1])/100.
+
+                    if study_options['player gather options']['crit']:
+                        total_fight_data["player_info"][-1]["crit"] = float(crit[:-1])/100.
+
+                    if study_options['player gather options']['dps']:
+                        total_fight_data["player_info"][-1]["dps"] = dps
+
+                    total_fight_data["player_info"][-1]["spec"] = specs[warlock_name]
                 break
             if "Mind Blast" in cast_element:
+                if crit_index is not None:
+                    crit = fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/tbody/tr["+str(g)+"]/td["+str(crit_index)+"]").text
+                else:
+                    crit = "0%"
+
                 if hit_index is not None:
                     hit = fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/tbody/tr[" + str(g) + "]/td["+str(hit_index)+"]").text
                 else:
                     hit = "0%"
+
                 if "-" in hit:
                     hit = "0%"
-                total_fight_data["player_info"].append({"name": warlock_name, "hit": 1.0 - float(hit[:-1])/100., "spec": "shadow priest", "dps": dps})
+                if "-" in crit:
+                    crit = "0%"
+
+                total_fight_data["player_info"].append({"name": warlock_name})
+
+                if study_options['player gather options']['hit']:
+                    total_fight_data["player_info"][-1]["hit"] = 1.0 - float(hit[:-1])/100.
+
+                if study_options['player gather options']['crit']:
+                    total_fight_data["player_info"][-1]["crit"] = float(crit[:-1])/100.
+
+                if study_options['player gather options']['dps']:
+                    total_fight_data["player_info"][-1]["dps"] = dps
+
+                total_fight_data["player_info"][-1]["spec"] = "shadow priest" 
                 break 
             if "Incinerate" in cast_element:
                 casted_incinerate = True
-                total_fight_data["player_info"].append({"name": warlock_name, "dps": dps, "spec": "fire destro"})
+                if crit_index is not None:
+                    crit = fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/tbody/tr["+str(g)+"]/td["+str(crit_index)+"]").text
+                else:
+                    crit = "0%"
+
+                if hit_index is not None:
+                    hit = fight_driver.find_element_by_xpath("/html/body/div[2]/div[2]/div[6]/div[3]/div[1]/div[7]/div[3]/div[2]/div[1]/table/tbody/tr[" + str(g) + "]/td["+str(hit_index)+"]").text
+                else:
+                    hit = "0%"
+
+                if "-" in hit:
+                    hit = "0%"
+                if "-" in crit:
+                    crit = "0%"
+                total_fight_data["player_info"].append({"name": warlock_name})
+
+                if study_options['player gather options']['hit']:
+                    total_fight_data["player_info"][-1]["hit"] = 1.0 - float(hit[:-1])/100.
+
+                if study_options['player gather options']['crit']:
+                    total_fight_data["player_info"][-1]["crit"] = float(crit[:-1])/100.
+
+                if study_options['player gather options']['dps']:
+                    total_fight_data["player_info"][-1]["dps"] = dps
+
+                total_fight_data["player_info"][-1]["spec"] = "fire destro" 
 
         except Exception as e:
             if casted_incinerate:

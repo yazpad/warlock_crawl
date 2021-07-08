@@ -23,6 +23,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 import sqlite3 as sl
 import json
 from config import study_options, display_options
+from colorama import Fore, Style
 
 raid_id = getRaidID()
 schema, record_key = generateStudySQLSchema()
@@ -75,7 +76,7 @@ def getRaidComposition(raid_html, warlock_sources, specs, boss_id):
         except:
             continue
         if fight_text == study_options['boss']:
-            print(fight_text)
+            print("Parsing", raid_html)
             ahref = fight_driver.find_element_by_xpath('/html/body/div[2]/div[2]/div[5]/div/div/div/div['+str(fight_num)+']/a')
             ahref.click()
             fight_html = ahref.get_attribute("href")
@@ -113,11 +114,13 @@ def getRaidComposition(raid_html, warlock_sources, specs, boss_id):
                                 num_shadow_warlocks += 1
                 except Exception as e:
                     ic(e)
-            print("Finished parsing log")
+            print("\n" + Fore.GREEN + "Finished parsing log" + Style.RESET_ALL)
+            print()
             success = True
             break
     else:
-        print("Boss not found in this log", fight_text, study_options['boss'],raid_html)
+        print("\n" + Fore.RED + "Boss not found in log" + Style.RESET_ALL)
+        print()
 
 
 
@@ -131,6 +134,9 @@ def getRaidComposition(raid_html, warlock_sources, specs, boss_id):
         if study_options['fight gather options']['isb uptime']:
             if agg_stats['total'] > 0:
                 total_fight_data['isb_ratio'] = agg_stats['in_isb']/agg_stats['total']
+
+        if study_options['fight gather options']['record server']:
+            total_fight_data['server'] = study_options['server']
 
         if success: #Todo add check function against config
             if display_options['debug']:
